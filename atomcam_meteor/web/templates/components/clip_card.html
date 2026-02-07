@@ -1,0 +1,16 @@
+{# Reusable clip card component - include with {% include "components/clip_card.html" %} #}
+<div class="clip-card{% if clip.excluded %} excluded{% endif %}" data-clip-id="{{ clip.id }}">
+    {% if clip.image_url %}
+    <a href="{{ clip.image_url }}" target="_blank">
+        <img src="{{ clip.image_url }}" alt="Detection {{ clip.hour }}:{{ clip.minute }}" loading="lazy">
+    </a>
+    {% endif %}
+    <div class="meta">
+        <strong>{{ "%02d"|format(clip.hour) }}:{{ "%02d"|format(clip.minute) }}</strong>
+        | {{ clip.line_count }} line(s)
+    </div>
+    <button class="toggle-btn {% if clip.excluded %}contrast{% else %}outline{% endif %}"
+            onclick="toggleExcluded({{ clip.id }}, {{ 'false' if clip.excluded else 'true' }})">
+        {{ "Excluded" if clip.excluded else "Included" }}
+    </button>
+</div>

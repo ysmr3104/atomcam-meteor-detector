@@ -1,0 +1,181 @@
+"""Web dashboard routes (HTML pages + JSON API)."""
+
+from __future__ import annotations
+
+import logging
+from pathlib import Path
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi.responses import HTMLResponse, JSONResponse
+
+from atomcam_meteor.config import AppConfig
+from atomcam_meteor.services.db import StateDB
+from atomcam_meteor.web.dependencies import get_config, get_db
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter()
+
+# In-memory rebuild status tracking
+_rebuild_status: dict[str, str] = {}
+
+
+# ── HTML pages ──────────────────────────────────────────────────────────
+
+@router.get("/", response_class=HTMLResponse)
+def index_page(
+    request: Request,
+    db: StateDB = Depends(get_db),
+) -> HTMLResponse:
+    """Night list dashboard."""
+    nights = db.nights.get_all_nights()
+    config: AppConfig = request.app.state.config
+    output_dir = config.paths.resolve_output_dir()
+    for night in nights:
+        if night.get("composite_image"):
+            try:
+                rel = Path(night["composite_image"]).relative_to(output_dir)
+                night["composite_url"] = f"/media/output/{rel}"
+            except ValueError:
+                night["composite_url"] = None
+        else:
+            night["composite_url"] = None
+    templates = request.app.state.templates
+    return templates.TemplateResponse(request, "index.html", {"nights": nights})
+
+
+@router.get("/nights/{date_str}", response_class=HTMLResponse)
+def night_page(
+    request: Request,
+    date_str: str,
+    db: StateDB = Depends(get_db),
+) -> HTMLResponse:
+    """Night detail page with detection grid."""
+    config: AppConfig = request.app.state.config
+    output_dir = config.paths.resolve_output_dir()
+    download_dir = config.paths.resolve_download_dir()
+
+    night_output = db.nights.get_output(date_str)
+    clips = db.clips.get_clips_by_date(date_str)
+
+    composite_url = None
+    video_url = None
+
+    if night_output:
+        if night_output.get("composite_image"):
+            try:
+                rel = Path(night_output["composite_image"]).relative_to(output_dir)
+                composite_url = f"/media/output/{rel}"
+            except ValueError:
+                pass
+        if night_output.get("concat_video"):
+            try:
+                rel = Path(night_output["concat_video"]).relative_to(output_dir)
+                video_url = f"/media/output/{rel}"
+            except ValueError:
+                pass
+
+    for clip in clips:
+        clip["image_url"] = None
+        clip["video_url"] = None
+        if clip.get("detection_image"):
+            try:
+                rel = Path(clip["detection_image"]).relative_to(output_dir)
+                clip["image_url"] = f"/media/output/{rel}"
+            except ValueError:
+                pass
+        if clip.get("detected_video"):
+            try:
+                rel = Path(clip["detected_video"]).relative_to(download_dir)
+                clip["video_url"] = f"/media/downloads/{rel}"
+            except ValueError:
+                pass
+
+    templates = request.app.state.templates
+    return templates.TemplateResponse(
+        request,
+        "night.html",
+        {
+            "date_str": date_str,
+            "night_output": night_output,
+            "clips": clips,
+            "composite_url": composite_url,
+            "video_url": video_url,
+        },
+    )
+
+
+# ── JSON API ────────────────────────────────────────────────────────────
+
+@router.get("/api/nights")
+def api_nights(db: StateDB = Depends(get_db)) -> list[dict]:
+    """Return all nights as JSON."""
+    return db.nights.get_all_nights()
+
+
+@router.get("/api/nights/{date_str}")
+def api_night_detail(date_str: str, db: StateDB = Depends(get_db)) -> dict:
+    """Return night detail as JSON."""
+    output = db.nights.get_output(date_str)
+    clips = db.clips.get_clips_by_date(date_str)
+    return {"date_str": date_str, "output": output, "clips": clips}
+
+
+@router.get("/api/nights/{date_str}/clips")
+def api_night_clips(date_str: str, db: StateDB = Depends(get_db)) -> list[dict]:
+    """Return clips for a night as JSON."""
+    return db.clips.get_clips_by_date(date_str)
+
+
+@router.patch("/api/clips/{clip_id}")
+def api_toggle_clip(
+    clip_id: int,
+    body: dict,
+    db: StateDB = Depends(get_db),
+) -> dict:
+    """Toggle the excluded status of a clip."""
+    if "excluded" not in body:
+        raise HTTPException(status_code=400, detail="'excluded' field required")
+    excluded = bool(body["excluded"])
+    clip = db.clips.get_clip_by_id(clip_id)
+    if clip is None:
+        raise HTTPException(status_code=404, detail="Clip not found")
+    db.clips.toggle_excluded(clip_id, excluded)
+    return {"id": clip_id, "excluded": excluded}
+
+
+@router.post("/api/nights/{date_str}/rebuild")
+def api_rebuild(
+    date_str: str,
+    background_tasks: BackgroundTasks,
+    config: AppConfig = Depends(get_config),
+) -> dict:
+    """Trigger rebuild of composite and video for a night."""
+    _rebuild_status[date_str] = "running"
+    background_tasks.add_task(_do_rebuild, date_str, config)
+    return {"date_str": date_str, "status": "started"}
+
+
+@router.get("/api/nights/{date_str}/rebuild/status")
+def api_rebuild_status(date_str: str) -> dict:
+    """Check rebuild progress."""
+    status = _rebuild_status.get(date_str, "idle")
+    return {"date_str": date_str, "status": status}
+
+
+def _do_rebuild(date_str: str, config: AppConfig) -> None:
+    """Background task: rebuild composite and video."""
+    try:
+        from atomcam_meteor.pipeline import Pipeline
+        from atomcam_meteor.services.db import StateDB
+
+        db = StateDB.from_path(config.paths.resolve_db_path())
+        try:
+            pipeline = Pipeline(config, db=db)
+            pipeline.rebuild_outputs(date_str)
+        finally:
+            db.close()
+        _rebuild_status[date_str] = "completed"
+    except Exception as exc:
+        logger.error("Rebuild failed for %s: %s", date_str, exc)
+        _rebuild_status[date_str] = f"error: {exc}"

@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}atomcam-meteor-detector{% endblock %}</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <style>
+        :root { --pico-font-size: 16px; }
+        .clip-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 1rem;
+        }
+        .clip-card {
+            border: 1px solid var(--pico-muted-border-color);
+            border-radius: var(--pico-border-radius);
+            padding: 0.75rem;
+            position: relative;
+        }
+        .clip-card img {
+            width: 100%;
+            height: auto;
+            border-radius: var(--pico-border-radius);
+        }
+        .clip-card .meta {
+            font-size: 0.875rem;
+            margin-top: 0.5rem;
+        }
+        .clip-card .toggle-btn {
+            min-width: 44px;
+            min-height: 44px;
+            padding: 0.5rem 1rem;
+            margin-top: 0.5rem;
+            cursor: pointer;
+        }
+        .clip-card.excluded {
+            opacity: 0.5;
+        }
+        .composite-img, .video-player {
+            max-width: 100%;
+            border-radius: var(--pico-border-radius);
+        }
+        .night-card {
+            display: block;
+            text-decoration: none;
+            color: inherit;
+            border: 1px solid var(--pico-muted-border-color);
+            border-radius: var(--pico-border-radius);
+            padding: 1rem;
+            margin-bottom: 1rem;
+            transition: background 0.2s;
+        }
+        .night-card:hover {
+            background: var(--pico-card-background-color);
+        }
+        .night-card img {
+            width: 100%;
+            max-height: 200px;
+            object-fit: cover;
+            border-radius: var(--pico-border-radius);
+            margin-bottom: 0.5rem;
+        }
+    </style>
+</head>
+<body>
+    <header class="container">
+        <nav>
+            <ul><li><a href="/"><strong>atomcam-meteor-detector</strong></a></li></ul>
+        </nav>
+    </header>
+    <main class="container">
+        {% block content %}{% endblock %}
+    </main>
+    <footer class="container">
+        <small>atomcam-meteor-detector v0.1.0</small>
+    </footer>
+    {% block scripts %}{% endblock %}
+</body>
+</html>

@@ -1,0 +1,7 @@
+{# Video player component - include with {% include "components/video_player.html" %} #}
+{% if video_url %}
+<video controls class="video-player" preload="metadata">
+    <source src="{{ video_url }}" type="video/mp4">
+    Your browser does not support the video tag.
+</video>
+{% endif %}

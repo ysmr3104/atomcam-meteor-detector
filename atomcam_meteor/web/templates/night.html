@@ -1,0 +1,128 @@
+{% extends "base.html" %}
+{% block title %}{{ date_str }} - atomcam-meteor-detector{% endblock %}
+{% block content %}
+<h1>Night: {{ date_str }}</h1>
+
+{% if composite_url %}
+<section>
+    <h2>Composite Image</h2>
+    <img src="{{ composite_url }}" alt="Composite" class="composite-img" loading="lazy">
+</section>
+{% endif %}
+
+{% if video_url %}
+<section>
+    <h2>Combined Video</h2>
+    <video controls class="video-player" preload="metadata">
+        <source src="{{ video_url }}" type="video/mp4">
+    </video>
+</section>
+{% endif %}
+
+<section>
+    <hgroup>
+        <h2>Detected Clips</h2>
+        <p>
+            {% if night_output %}{{ night_output.detection_count }}{% else %}0{% endif %} detection(s)
+            <button id="rebuild-btn" onclick="triggerRebuild()" class="outline" style="margin-left:1rem;">
+                Rebuild
+            </button>
+        </p>
+    </hgroup>
+
+    <div class="clip-grid">
+        {% for clip in clips %}
+        {% if clip.status == 'detected' %}
+        <div class="clip-card{% if clip.excluded %} excluded{% endif %}" data-clip-id="{{ clip.id }}">
+            {% if clip.image_url %}
+            <a href="{{ clip.image_url }}" target="_blank">
+                <img src="{{ clip.image_url }}" alt="Detection {{ clip.hour }}:{{ clip.minute }}" loading="lazy">
+            </a>
+            {% endif %}
+            <div class="meta">
+                <strong>{{ "%02d"|format(clip.hour) }}:{{ "%02d"|format(clip.minute) }}</strong>
+                | {{ clip.line_count }} line(s)
+            </div>
+            {% if clip.video_url %}
+            <details>
+                <summary>Video</summary>
+                <video controls class="video-player" preload="metadata" style="margin-top:0.5rem;">
+                    <source src="{{ clip.video_url }}" type="video/mp4">
+                </video>
+            </details>
+            {% endif %}
+            <button class="toggle-btn {% if clip.excluded %}contrast{% else %}outline{% endif %}"
+                    onclick="toggleExcluded({{ clip.id }}, {{ 'false' if clip.excluded else 'true' }})">
+                {{ "Excluded" if clip.excluded else "Included" }}
+            </button>
+        </div>
+        {% endif %}
+        {% endfor %}
+    </div>
+</section>
+{% endblock %}
+
+{% block scripts %}
+<script>
+async function toggleExcluded(clipId, excluded) {
+    try {
+        const resp = await fetch(`/api/clips/${clipId}`, {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({excluded: excluded}),
+        });
+        if (resp.ok) {
+            location.reload();
+        } else {
+            const err = await resp.json();
+            alert('Error: ' + (err.detail || 'Unknown error'));
+        }
+    } catch (e) {
+        alert('Request failed: ' + e.message);
+    }
+}
+
+async function triggerRebuild() {
+    const btn = document.getElementById('rebuild-btn');
+    btn.disabled = true;
+    btn.textContent = 'Rebuilding...';
+    try {
+        const resp = await fetch(`/api/nights/{{ date_str }}/rebuild`, {method: 'POST'});
+        if (resp.ok) {
+            pollRebuild();
+        } else {
+            btn.disabled = false;
+            btn.textContent = 'Rebuild';
+            alert('Rebuild failed to start');
+        }
+    } catch (e) {
+        btn.disabled = false;
+        btn.textContent = 'Rebuild';
+        alert('Request failed: ' + e.message);
+    }
+}
+
+async function pollRebuild() {
+    const btn = document.getElementById('rebuild-btn');
+    const interval = setInterval(async () => {
+        try {
+            const resp = await fetch(`/api/nights/{{ date_str }}/rebuild/status`);
+            const data = await resp.json();
+            if (data.status === 'completed') {
+                clearInterval(interval);
+                location.reload();
+            } else if (data.status.startsWith('error')) {
+                clearInterval(interval);
+                btn.disabled = false;
+                btn.textContent = 'Rebuild';
+                alert('Rebuild error: ' + data.status);
+            }
+        } catch (e) {
+            clearInterval(interval);
+            btn.disabled = false;
+            btn.textContent = 'Rebuild';
+        }
+    }, 2000);
+}
+</script>
+{% endblock %}

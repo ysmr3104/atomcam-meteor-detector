@@ -1,0 +1,52 @@
+[project]
+name = "atomcam-meteor-detector"
+version = "0.1.0"
+description = "Automatic meteor detection from ATOM Cam videos"
+requires-python = ">=3.10"
+readme = "README.md"
+dependencies = [
+    "click>=8.1",
+    "fastapi>=0.115",
+    "httpx>=0.27",
+    "jinja2>=3.1",
+    "numpy>=1.26",
+    "opencv-python-headless>=4.9",
+    "pydantic>=2.6",
+    "pyyaml>=6.0",
+    "uvicorn>=0.34",
+]
+
+[project.scripts]
+atomcam = "atomcam_meteor.cli:cli"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["atomcam_meteor"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=6.0",
+    "pytest-mock>=3.14",
+    "respx>=0.22",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=atomcam_meteor --cov-report=term-missing"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 99
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
