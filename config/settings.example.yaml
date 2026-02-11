@@ -1,7 +1,7 @@
 camera:
   host: "atomcam.local"
-  http_user: "user"
-  http_password: "passwd"       # Override in settings.yaml (gitignored)
+  # http_user: "user"           # 認証が必要な場合のみ設定
+  # http_password: "passwd"
   base_path: "sdcard/record"
   timeout_sec: 10
   retry_count: 3

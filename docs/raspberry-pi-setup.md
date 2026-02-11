@@ -1,0 +1,262 @@
+# Raspberry Pi セットアップガイド
+
+ATOM Cam 流星検出ツールを Raspberry Pi 上で動作させるための手順書。
+
+## 推奨ハードウェア
+
+| 項目 | 推奨 |
+|---|---|
+| モデル | Raspberry Pi 4 Model B |
+| RAM | 4GB 以上 |
+| ストレージ | microSD 32GB 以上（高耐久タイプ推奨） |
+| 電源 | USB-C 5V/3A 公式電源アダプタ |
+| ネットワーク | 有線 LAN 推奨（ATOM Cam からの動画ダウンロードが安定する） |
+
+## 推奨 OS
+
+**Raspberry Pi OS Lite (64-bit, Bookworm)** を推奨します。
+
+### 選定理由
+
+- Debian 12 ベースで Python 3.11 が標準搭載（本ツールは Python 3.10+ が必要）
+- 公式 OS のため Raspberry Pi 4B とのハードウェア互換性が最も高い
+- Lite 版（デスクトップなし）により RAM・CPU リソースを動画処理に集中できる
+- 64-bit 版で ARM64 アーキテクチャをフル活用し、メモリ空間と演算性能が向上
+- OpenCV、ffmpeg などの依存パッケージが `apt` で容易にインストール可能
+- ヘッドレス・cron 駆動の運用に最適
+
+### ダウンロード
+
+公式サイトからダウンロードしてください：
+
+- **Raspberry Pi Imager（推奨）**: https://www.raspberrypi.com/software/
+  - OS 選択で「Raspberry Pi OS (other)」→「Raspberry Pi OS Lite (64-bit)」を選択
+  - Imager の設定画面で SSH 有効化、Wi-Fi、ユーザー名/パスワードを事前設定可能
+- **OS イメージ直接ダウンロード**: https://www.raspberrypi.com/software/operating-systems/
+  - 「Raspberry Pi OS (64-bit) Lite」をダウンロード
+
+## OS イメージの書き込み
+
+### 準備するもの
+
+- microSD カード（32GB 以上）
+- microSD カードリーダー（PC に内蔵されていない場合）
+
+### 手順（Raspberry Pi Imager を使用）
+
+1. **Raspberry Pi Imager のインストール**
+   - https://www.raspberrypi.com/software/ から作業用 PC の OS に合ったインストーラをダウンロード
+   - インストールして起動する
+
+2. **デバイスの選択**
+   - 「デバイスを選択」→「Raspberry Pi 4」を選択
+
+3. **OS の選択**
+   - 「OSを選択」→「Raspberry Pi OS (other)」→「Raspberry Pi OS Lite (64-bit)」を選択
+
+4. **ストレージの選択**
+   - microSD カードを PC に挿入
+   - 「ストレージを選択」→ 挿入した microSD カードを選択
+
+5. **カスタム設定（重要）**
+   - 「次へ」を押すと「OSのカスタマイズを使いますか？」と表示されるので「設定を編集する」を選択
+   - **一般タブ**:
+     - 「ホスト名」: 任意の名前を設定（例: `meteor-pi`）
+     - 「ユーザー名とパスワードを設定する」: 有効にして任意のユーザー名・パスワードを設定
+     - 「Wi-Fi を設定する」: 必要に応じて SSID とパスワードを入力（有線 LAN 推奨だが初期接続用に設定しておくと便利）
+     - 「ロケールを設定する」: タイムゾーンを `Asia/Tokyo`、キーボードレイアウトは環境に合わせて設定（SSH 接続時はクライアント側のレイアウトが使われるため、ヘッドレス運用なら任意で可）
+   - **サービスタブ**:
+     - 「SSH を有効にする」: 有効にする（ヘッドレス運用のため必須）
+     - 「パスワード認証を使う」を選択（後から公開鍵認証に切り替え可能）
+   - 設定を保存する
+
+6. **書き込み**
+   - 「はい」を押して書き込みを開始
+   - 完了したら microSD カードを PC から取り出す
+
+### 手順（手動で書き込む場合）
+
+Raspberry Pi Imager を使わない場合は、以下の手順で書き込みます。
+
+1. https://www.raspberrypi.com/software/operating-systems/ から「Raspberry Pi OS Lite (64-bit)」の `.img.xz` ファイルをダウンロード
+2. 書き込みツールで microSD カードに書き込む:
+   - **Windows**: [Rufus](https://rufus.ie/) または [balenaEtcher](https://etcher.balena.io/)
+   - **macOS / Linux**: [balenaEtcher](https://etcher.balena.io/) または `dd` コマンド
+3. 書き込み後、microSD カードの `boot` パーティションに以下のファイルを作成して SSH を有効化:
+   ```bash
+   # boot パーティションに空の ssh ファイルを作成
+   touch /Volumes/bootfs/ssh   # macOS の場合
+   ```
+
+## Raspberry Pi の起動と初期接続
+
+1. 書き込み済みの microSD カードを Raspberry Pi に挿入
+2. LAN ケーブルを接続（推奨）
+3. 電源を接続して起動（初回起動は数分かかる場合がある）
+4. 作業用 PC から SSH で接続:
+   ```bash
+   ssh <ユーザー名>@<ホスト名>.local
+   # 例: ssh meteor@meteor-pi.local
+   ```
+   - `.local` で見つからない場合は、ルーターの管理画面等で Raspberry Pi の IP アドレスを確認して直接指定
+   ```bash
+   ssh <ユーザー名>@<IPアドレス>
+   ```
+
+## OS の初期設定
+
+SSH 接続後、以下のコマンドで OS を最新の状態にします。
+
+```bash
+sudo apt update && sudo apt upgrade -y
+```
+
+再起動が必要な場合：
+
+```bash
+sudo reboot
+```
+
+## 依存パッケージのインストール
+
+### システムパッケージ
+
+OpenCV と ffmpeg に必要なシステムライブラリをインストールします。
+
+```bash
+sudo apt install -y \
+  git \
+  ffmpeg \
+  libopencv-dev \
+  python3-dev \
+  python3-venv
+```
+
+### uv（Python パッケージマネージャ）のインストール
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+シェルを再読み込みして `uv` コマンドを有効にします：
+
+```bash
+source ~/.local/bin/env
+```
+
+インストール確認：
+
+```bash
+uv --version
+```
+
+## 本ツールのセットアップ
+
+### リポジトリのクローン
+
+```bash
+cd ~
+git clone https://github.com/ysmr3104/atomcam-meteor-detector.git
+cd atomcam-meteor-detector
+```
+
+### Python 依存パッケージのインストール
+
+```bash
+uv sync
+```
+
+### 設定ファイルの作成
+
+```bash
+cp config/settings.example.yaml config/settings.yaml
+```
+
+`config/settings.yaml` を環境に合わせて編集してください。
+
+主な変更点：
+
+- `camera.host`: ATOM Cam のホスト名に合わせて変更（例: `atomcam2.local`）
+
+```yaml
+camera:
+  host: "atomcam2.local"
+```
+
+> **補足**: `http_user` / `http_password` はデフォルトで無効（認証なし）です。ATOM Cam 2 はそのままで動作します。認証が必要な環境の場合のみ設定してください。
+
+### 動作確認
+
+```bash
+uv run atomcam --help
+```
+
+## Web ダッシュボードの自動起動（systemd）
+
+Web ダッシュボードを OS 起動時に自動で立ち上げるには、systemd のサービスを作成します。
+
+### サービスファイルの作成
+
+```bash
+sudo nano /etc/systemd/system/atomcam-web.service
+```
+
+以下の内容を記述します（`User` と `WorkingDirectory` は環境に合わせて変更してください）：
+
+```ini
+[Unit]
+Description=ATOM Cam Meteor Detector Web Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=ysmr3104
+WorkingDirectory=/home/ysmr3104/atomcam-meteor-detector
+ExecStart=/home/ysmr3104/.local/bin/uv run atomcam serve -c config/settings.yaml
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### サービスの有効化と起動
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable atomcam-web
+sudo systemctl start atomcam-web
+```
+
+### 状態確認
+
+```bash
+sudo systemctl status atomcam-web
+```
+
+ブラウザから `http://<ホスト名>.local:8080/` にアクセスして表示を確認してください。
+
+## cron による定期実行
+
+パイプラインを毎朝自動実行し、前夜の録画から流星を検出します。
+
+### cron の設定
+
+```bash
+crontab -e
+```
+
+以下の行を追加します：
+
+```cron
+0 6 * * * cd /home/ysmr3104/atomcam-meteor-detector && /home/ysmr3104/.local/bin/uv run atomcam run -c config/settings.yaml >> /home/ysmr3104/atomcam/logs/pipeline.log 2>&1
+```
+
+- **実行時刻**: 毎日 6:00（前夜 22:00〜翌 5:59 の録画がすべて揃った後）
+- **ログ出力**: `~/atomcam/logs/pipeline.log` に追記
+
+### ログディレクトリの作成
+
+```bash
+mkdir -p ~/atomcam/logs
+```
