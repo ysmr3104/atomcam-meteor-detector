@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import logging
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -20,6 +21,7 @@ from atomcam_meteor.modules.compositor import Compositor
 from atomcam_meteor.modules.concatenator import Concatenator
 from atomcam_meteor.modules.detector import MeteorDetector
 from atomcam_meteor.modules.downloader import Downloader
+from atomcam_meteor.modules.extractor import ClipExtractor
 from atomcam_meteor.services.db import ClipStatus, StateDB
 
 logger = logging.getLogger(__name__)
@@ -48,6 +50,7 @@ class Pipeline:
         detector: MeteorDetector | None = None,
         compositor: Compositor | None = None,
         concatenator: Concatenator | None = None,
+        extractor: ClipExtractor | None = None,
         db: StateDB | None = None,
     ) -> None:
         self._config = config
@@ -57,6 +60,7 @@ class Pipeline:
         self._detector = detector or MeteorDetector(config.detection)
         self._compositor = compositor or Compositor()
         self._concatenator = concatenator or Concatenator()
+        self._extractor = extractor or ClipExtractor(config.detection)
         self._db = db
 
     def execute(self, date_str: str | None = None) -> PipelineResult:
@@ -80,7 +84,6 @@ class Pipeline:
         clips_processed = 0
         detections_found = 0
         detected_images: list[Path] = []
-        detected_videos: list[Path] = []
 
         for slot_date, hour in time_slots:
             try:
@@ -119,13 +122,17 @@ class Pipeline:
                         detections_found += 1
                         if result.image_path:
                             detected_images.append(result.image_path)
-                        detected_videos.append(local_path)
+
+                        # Extract short clips around detected groups
+                        detected_video_json = self._extract_short_clips(
+                            local_path, result, output_dir,
+                        )
 
                         if self._db:
                             self._db.clips.update_clip_status(
                                 clip_url, ClipStatus.DETECTED,
                                 detection_image=str(result.image_path) if result.image_path else None,
-                                detected_video=str(local_path),
+                                detected_video=detected_video_json,
                                 line_count=result.line_count,
                             )
 
@@ -157,7 +164,6 @@ class Pipeline:
             )
 
         composite_path: str | None = None
-        video_path: str | None = None
 
         if detected_images:
             try:
@@ -170,22 +176,11 @@ class Pipeline:
                     stage="composite", error=str(exc), context={"date": date_str},
                 ))
 
-        if detected_videos:
-            try:
-                vid_out = output_dir / f"{date_str}_meteors.mp4"
-                self._concatenator.concatenate(detected_videos, vid_out)
-                video_path = str(vid_out)
-            except AtomcamError as exc:
-                logger.error("Concatenation failed: %s", exc)
-                self._hooks.fire_error(ErrorEvent(
-                    stage="concatenate", error=str(exc), context={"date": date_str},
-                ))
-
         if self._db:
             self._db.nights.upsert_output(
                 date_str,
                 composite_image=composite_path,
-                concat_video=video_path,
+                concat_video=None,
                 detection_count=detections_found,
             )
 
@@ -193,7 +188,7 @@ class Pipeline:
             date_str=date_str,
             detection_count=detections_found,
             composite_path=composite_path,
-            video_path=video_path,
+            video_path=None,
         ))
 
         logger.info(
@@ -206,16 +201,25 @@ class Pipeline:
             clips_processed=clips_processed,
             detections_found=detections_found,
             composite_path=composite_path,
-            video_path=video_path,
+            video_path=None,
         )
 
     def rebuild_outputs(self, date_str: str) -> PipelineResult:
-        """Rebuild composite and video from non-excluded detected clips.
+        """Rebuild both composite and concatenated video (backward-compat wrapper)."""
+        result = self.rebuild_composite(date_str)
+        result2 = self.rebuild_concatenation(date_str)
+        return PipelineResult(
+            date_str=date_str,
+            clips_processed=0,
+            detections_found=result.detections_found,
+            composite_path=result.composite_path,
+            video_path=result2.video_path,
+        )
 
-        Used by the web dashboard when clips are excluded/included.
-        """
+    def rebuild_composite(self, date_str: str) -> PipelineResult:
+        """Rebuild composite image from non-excluded detected clips."""
         if self._db is None:
-            raise AtomcamError("Database required for rebuild_outputs")
+            raise AtomcamError("Database required for rebuild_composite")
 
         output_dir = self._config.paths.resolve_output_dir() / date_str
         clips = self._db.clips.get_included_detected_clips(date_str)
@@ -223,12 +227,8 @@ class Pipeline:
         detected_images = [
             Path(c["detection_image"]) for c in clips if c.get("detection_image")
         ]
-        detected_videos = [
-            Path(c["detected_video"]) for c in clips if c.get("detected_video")
-        ]
 
         composite_path: str | None = None
-        video_path: str | None = None
 
         if detected_images:
             try:
@@ -238,18 +238,14 @@ class Pipeline:
             except AtomcamError as exc:
                 logger.error("Rebuild compositing failed: %s", exc)
 
-        if detected_videos:
-            try:
-                vid_out = output_dir / f"{date_str}_meteors.mp4"
-                self._concatenator.concatenate(detected_videos, vid_out)
-                video_path = str(vid_out)
-            except AtomcamError as exc:
-                logger.error("Rebuild concatenation failed: %s", exc)
+        # Preserve existing concat_video
+        existing = self._db.nights.get_output(date_str)
+        existing_video = existing.get("concat_video") if existing else None
 
         self._db.nights.upsert_output(
             date_str,
             composite_image=composite_path,
-            concat_video=video_path,
+            concat_video=existing_video,
             detection_count=len(clips),
         )
 
@@ -258,8 +254,75 @@ class Pipeline:
             clips_processed=0,
             detections_found=len(clips),
             composite_path=composite_path,
+            video_path=existing_video,
+        )
+
+    def rebuild_concatenation(self, date_str: str) -> PipelineResult:
+        """Rebuild concatenated video from non-excluded detected clips."""
+        if self._db is None:
+            raise AtomcamError("Database required for rebuild_concatenation")
+
+        output_dir = self._config.paths.resolve_output_dir() / date_str
+        clips = self._db.clips.get_included_detected_clips(date_str)
+
+        # Collect all short clip paths from detected_video JSON
+        all_clip_paths: list[Path] = []
+        for c in clips:
+            paths = self._db.clips.get_detected_video_paths(c)
+            all_clip_paths.extend(Path(p) for p in paths)
+
+        video_path: str | None = None
+
+        if all_clip_paths:
+            try:
+                vid_out = output_dir / f"{date_str}_meteors.mp4"
+                self._concatenator.concatenate(all_clip_paths, vid_out)
+                video_path = str(vid_out)
+            except AtomcamError as exc:
+                logger.error("Rebuild concatenation failed: %s", exc)
+
+        # Preserve existing composite_image
+        existing = self._db.nights.get_output(date_str)
+        existing_composite = existing.get("composite_image") if existing else None
+        existing_count = existing.get("detection_count", len(clips)) if existing else len(clips)
+
+        self._db.nights.upsert_output(
+            date_str,
+            composite_image=existing_composite,
+            concat_video=video_path,
+            detection_count=existing_count,
+        )
+
+        return PipelineResult(
+            date_str=date_str,
+            clips_processed=0,
+            detections_found=len(clips),
+            composite_path=existing_composite,
             video_path=video_path,
         )
+
+    def _extract_short_clips(
+        self, local_path: Path, result: object, output_dir: Path
+    ) -> str:
+        """Extract short clips and return a JSON array of paths.
+
+        Falls back to the original video path on failure.
+        """
+        from atomcam_meteor.modules.detector import DetectionResult
+
+        assert isinstance(result, DetectionResult)
+        try:
+            time_ranges = self._extractor.compute_time_ranges(
+                result.detection_groups, result.fps,
+            )
+            if time_ranges:
+                extracted = self._extractor.extract(local_path, time_ranges, output_dir)
+                return json.dumps([str(p) for p in extracted])
+        except AtomcamError as exc:
+            logger.warning("Clip extraction failed, using original: %s", exc)
+
+        # Fallback: store the original video path
+        return json.dumps([str(local_path)])
 
     def _determine_date(self) -> str:
         """Determine the observation date string (YYYYMMDD).

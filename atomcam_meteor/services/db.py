@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import enum
+import json
 import logging
 import sqlite3
 from pathlib import Path
@@ -150,6 +151,24 @@ class ClipRepository:
             (date_str, ClipStatus.DETECTED),
         ).fetchall()
         return [dict(r) for r in rows]
+
+    @staticmethod
+    def get_detected_video_paths(clip: dict) -> list[str]:
+        """Parse ``detected_video`` field into a list of path strings.
+
+        Handles JSON arrays, plain strings, and *None*.
+        """
+        raw = clip.get("detected_video")
+        if not raw:
+            return []
+        try:
+            parsed = json.loads(raw)
+            if isinstance(parsed, list):
+                return [str(p) for p in parsed]
+        except (json.JSONDecodeError, TypeError):
+            pass
+        # Legacy single-path fallback
+        return [raw]
 
     def toggle_excluded(self, clip_id: int, excluded: bool) -> None:
         """Set the excluded flag for a clip by its ID."""

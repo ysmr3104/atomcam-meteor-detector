@@ -1,5 +1,6 @@
 """Tests for the web dashboard."""
 
+import json
 import sqlite3
 
 import pytest
@@ -42,7 +43,8 @@ def seeded_db(web_app, tmp_path):
     db.clips.upsert_clip("http://cam/20250101/22/00.mp4", "20250101", 22, 0,
                          status=ClipStatus.DETECTED)
     db.clips.update_clip_status("http://cam/20250101/22/00.mp4", ClipStatus.DETECTED,
-                                line_count=3, detection_image=str(tmp_path / "output" / "img.png"))
+                                line_count=3, detection_image=str(tmp_path / "output" / "img.png"),
+                                detected_video=json.dumps([str(tmp_path / "output" / "clip_meteor.mp4")]))
     db.nights.upsert_output("20250101", detection_count=1)
     db.close()
     return db
@@ -63,6 +65,12 @@ class TestHTMLPages:
         resp = client.get("/nights/20250101")
         assert resp.status_code == 200
         assert "20250101" in resp.text
+
+    def test_night_page_has_concatenate_button(self, client, seeded_db):
+        resp = client.get("/nights/20250101")
+        assert resp.status_code == 200
+        assert "Concatenate Video" in resp.text
+        assert "Rebuild Composite" in resp.text
 
 
 class TestAPI:
@@ -108,5 +116,15 @@ class TestAPI:
 
     def test_rebuild_status(self, client):
         resp = client.get("/api/nights/20250101/rebuild/status")
+        assert resp.status_code == 200
+        assert "status" in resp.json()
+
+    def test_concatenate_trigger(self, client, seeded_db):
+        resp = client.post("/api/nights/20250101/concatenate")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "started"
+
+    def test_concatenate_status(self, client):
+        resp = client.get("/api/nights/20250101/concatenate/status")
         assert resp.status_code == 200
         assert "status" in resp.json()

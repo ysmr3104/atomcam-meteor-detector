@@ -43,6 +43,10 @@ class CompositorError(AtomcamError):
     """Image compositing error."""
 
 
+class ExtractionError(AtomcamError):
+    """Clip extraction (ffmpeg) error."""
+
+
 class ConcatenationError(AtomcamError):
     """ffmpeg / video concatenation error."""
 
