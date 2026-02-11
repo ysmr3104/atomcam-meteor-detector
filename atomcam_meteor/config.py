@@ -20,8 +20,8 @@ class CameraConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
     host: str = "atomcam.local"
-    http_user: str = "user"
-    http_password: str = "passwd"
+    http_user: Optional[str] = None
+    http_password: Optional[str] = None
     base_path: str = "sdcard/record"
     timeout_sec: int = 10
     retry_count: int = 3

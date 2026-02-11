@@ -20,6 +20,11 @@ class Downloader:
 
     def __init__(self, config: CameraConfig) -> None:
         self.config = config
+        self._auth: httpx.BasicAuth | None = (
+            httpx.BasicAuth(config.http_user, config.http_password)
+            if config.http_user and config.http_password
+            else None
+        )
 
     def list_clips(self, date_str: str, hour: int) -> list[str]:
         """Fetch directory listing and return full URLs to .mp4 clips."""
@@ -29,10 +34,7 @@ class Downloader:
         try:
             resp = httpx.get(
                 hour_url,
-                auth=httpx.BasicAuth(
-                    self.config.http_user,
-                    self.config.http_password,
-                ),
+                auth=self._auth,
                 timeout=self.config.timeout_sec,
             )
             resp.raise_for_status()
@@ -70,10 +72,7 @@ class Downloader:
                 with httpx.stream(
                     "GET",
                     url,
-                    auth=httpx.BasicAuth(
-                        self.config.http_user,
-                        self.config.http_password,
-                    ),
+                    auth=self._auth,
                     timeout=self.config.timeout_sec,
                 ) as resp:
                     resp.raise_for_status()
