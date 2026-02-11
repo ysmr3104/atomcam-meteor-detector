@@ -35,13 +35,10 @@ ATOM Cam 流星検出ツールを Raspberry Pi 上で動作させるための手
 - **OS イメージ直接ダウンロード**: https://www.raspberrypi.com/software/operating-systems/
   - 「Raspberry Pi OS (64-bit) Lite」をダウンロード
 
-## OS イメージの書き込み（別 PC で実施）
-
-microSD カードへの OS イメージ書き込みは、作業用 PC（Windows / macOS / Linux）で行います。
+## OS イメージの書き込み
 
 ### 準備するもの
 
-- 作業用 PC
 - microSD カード（32GB 以上）
 - microSD カードリーダー（PC に内蔵されていない場合）
 
@@ -67,7 +64,7 @@ microSD カードへの OS イメージ書き込みは、作業用 PC（Windows 
      - 「ホスト名」: 任意の名前を設定（例: `meteor-pi`）
      - 「ユーザー名とパスワードを設定する」: 有効にして任意のユーザー名・パスワードを設定
      - 「Wi-Fi を設定する」: 必要に応じて SSID とパスワードを入力（有線 LAN 推奨だが初期接続用に設定しておくと便利）
-     - 「ロケールを設定する」: タイムゾーンを `Asia/Tokyo`、キーボードレイアウトを `jp` に設定
+     - 「ロケールを設定する」: タイムゾーンを `Asia/Tokyo`、キーボードレイアウトは環境に合わせて設定（SSH 接続時はクライアント側のレイアウトが使われるため、ヘッドレス運用なら任意で可）
    - **サービスタブ**:
      - 「SSH を有効にする」: 有効にする（ヘッドレス運用のため必須）
      - 「パスワード認証を使う」を選択（後から公開鍵認証に切り替え可能）
@@ -106,6 +103,83 @@ Raspberry Pi Imager を使わない場合は、以下の手順で書き込みま
    ssh <ユーザー名>@<IPアドレス>
    ```
 
+## OS の初期設定
+
+SSH 接続後、以下のコマンドで OS を最新の状態にします。
+
+```bash
+sudo apt update && sudo apt upgrade -y
+```
+
+再起動が必要な場合：
+
+```bash
+sudo reboot
+```
+
+## 依存パッケージのインストール
+
+### システムパッケージ
+
+OpenCV と ffmpeg に必要なシステムライブラリをインストールします。
+
+```bash
+sudo apt install -y \
+  git \
+  ffmpeg \
+  libopencv-dev \
+  python3-dev \
+  python3-venv
+```
+
+### uv（Python パッケージマネージャ）のインストール
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+```
+
+シェルを再読み込みして `uv` コマンドを有効にします：
+
+```bash
+source ~/.local/bin/env
+```
+
+インストール確認：
+
+```bash
+uv --version
+```
+
+## 本ツールのセットアップ
+
+### リポジトリのクローン
+
+```bash
+cd ~
+git clone https://github.com/ysmr3104/atomcam-meteor-detector.git
+cd atomcam-meteor-detector
+```
+
+### Python 依存パッケージのインストール
+
+```bash
+uv sync
+```
+
+### 設定ファイルの作成
+
+```bash
+cp config/settings.example.yaml config/settings.yaml
+```
+
+`config/settings.yaml` を環境に合わせて編集してください。
+
+### 動作確認
+
+```bash
+uv run atomcam --help
+```
+
 ---
 
-> **次のステップ**: SSH 接続できたら、OS の初期設定と本ツールの依存パッケージインストールに進みます（別途追記予定）。
+> **次のステップ**: cron による定期実行の設定、Web ダッシュボードの起動設定について別途追記予定。
