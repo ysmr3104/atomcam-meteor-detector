@@ -174,12 +174,89 @@ cp config/settings.example.yaml config/settings.yaml
 
 `config/settings.yaml` を環境に合わせて編集してください。
 
+主な変更点：
+
+- `camera.host`: ATOM Cam のホスト名に合わせて変更（例: `atomcam2.local`）
+
+```yaml
+camera:
+  host: "atomcam2.local"
+```
+
+> **補足**: `http_user` / `http_password` はデフォルトで無効（認証なし）です。ATOM Cam 2 はそのままで動作します。認証が必要な環境の場合のみ設定してください。
+
 ### 動作確認
 
 ```bash
 uv run atomcam --help
 ```
 
----
+## Web ダッシュボードの自動起動（systemd）
 
-> **次のステップ**: cron による定期実行の設定、Web ダッシュボードの起動設定について別途追記予定。
+Web ダッシュボードを OS 起動時に自動で立ち上げるには、systemd のサービスを作成します。
+
+### サービスファイルの作成
+
+```bash
+sudo nano /etc/systemd/system/atomcam-web.service
+```
+
+以下の内容を記述します（`User` と `WorkingDirectory` は環境に合わせて変更してください）：
+
+```ini
+[Unit]
+Description=ATOM Cam Meteor Detector Web Dashboard
+After=network.target
+
+[Service]
+Type=simple
+User=ysmr3104
+WorkingDirectory=/home/ysmr3104/atomcam-meteor-detector
+ExecStart=/home/ysmr3104/.local/bin/uv run atomcam serve -c config/settings.yaml
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### サービスの有効化と起動
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable atomcam-web
+sudo systemctl start atomcam-web
+```
+
+### 状態確認
+
+```bash
+sudo systemctl status atomcam-web
+```
+
+ブラウザから `http://<ホスト名>.local:8080/` にアクセスして表示を確認してください。
+
+## cron による定期実行
+
+パイプラインを毎朝自動実行し、前夜の録画から流星を検出します。
+
+### cron の設定
+
+```bash
+crontab -e
+```
+
+以下の行を追加します：
+
+```cron
+0 6 * * * cd /home/ysmr3104/atomcam-meteor-detector && /home/ysmr3104/.local/bin/uv run atomcam run -c config/settings.yaml >> /home/ysmr3104/atomcam/logs/pipeline.log 2>&1
+```
+
+- **実行時刻**: 毎日 6:00（前夜 22:00〜翌 5:59 の録画がすべて揃った後）
+- **ログ出力**: `~/atomcam/logs/pipeline.log` に追記
+
+### ログディレクトリの作成
+
+```bash
+mkdir -p ~/atomcam/logs
+```
