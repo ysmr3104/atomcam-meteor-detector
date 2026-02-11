@@ -34,6 +34,7 @@ class DetectionConfig(BaseModel):
     canny_threshold1: int = 100
     canny_threshold2: int = 200
     exposure_duration_sec: float = 1.0
+    clip_margin_sec: float = 0.5
     mask_path: Optional[str] = None
 
 

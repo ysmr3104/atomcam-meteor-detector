@@ -25,7 +25,10 @@
         <p>
             {% if night_output %}{{ night_output.detection_count }}{% else %}0{% endif %} detection(s)
             <button id="rebuild-btn" onclick="triggerRebuild()" class="outline" style="margin-left:1rem;">
-                Rebuild
+                Rebuild Composite
+            </button>
+            <button id="concatenate-btn" onclick="triggerConcatenate()" class="outline" style="margin-left:0.5rem;">
+                Concatenate Video
             </button>
         </p>
     </hgroup>
@@ -43,12 +46,14 @@
                 <strong>{{ "%02d"|format(clip.hour) }}:{{ "%02d"|format(clip.minute) }}</strong>
                 | {{ clip.line_count }} line(s)
             </div>
-            {% if clip.video_url %}
+            {% if clip.video_urls %}
             <details>
-                <summary>Video</summary>
+                <summary>Video ({{ clip.video_urls|length }} clip{{ "s" if clip.video_urls|length > 1 else "" }})</summary>
+                {% for vurl in clip.video_urls %}
                 <video controls class="video-player" preload="metadata" style="margin-top:0.5rem;">
-                    <source src="{{ clip.video_url }}" type="video/mp4">
+                    <source src="{{ vurl }}" type="video/mp4">
                 </video>
+                {% endfor %}
             </details>
             {% endif %}
             <button class="toggle-btn {% if clip.excluded %}contrast{% else %}outline{% endif %}"
@@ -92,12 +97,12 @@ async function triggerRebuild() {
             pollRebuild();
         } else {
             btn.disabled = false;
-            btn.textContent = 'Rebuild';
+            btn.textContent = 'Rebuild Composite';
             alert('Rebuild failed to start');
         }
     } catch (e) {
         btn.disabled = false;
-        btn.textContent = 'Rebuild';
+        btn.textContent = 'Rebuild Composite';
         alert('Request failed: ' + e.message);
     }
 }
@@ -114,13 +119,56 @@ async function pollRebuild() {
             } else if (data.status.startsWith('error')) {
                 clearInterval(interval);
                 btn.disabled = false;
-                btn.textContent = 'Rebuild';
+                btn.textContent = 'Rebuild Composite';
                 alert('Rebuild error: ' + data.status);
             }
         } catch (e) {
             clearInterval(interval);
             btn.disabled = false;
-            btn.textContent = 'Rebuild';
+            btn.textContent = 'Rebuild Composite';
+        }
+    }, 2000);
+}
+
+async function triggerConcatenate() {
+    const btn = document.getElementById('concatenate-btn');
+    btn.disabled = true;
+    btn.textContent = 'Concatenating...';
+    try {
+        const resp = await fetch(`/api/nights/{{ date_str }}/concatenate`, {method: 'POST'});
+        if (resp.ok) {
+            pollConcatenate();
+        } else {
+            btn.disabled = false;
+            btn.textContent = 'Concatenate Video';
+            alert('Concatenation failed to start');
+        }
+    } catch (e) {
+        btn.disabled = false;
+        btn.textContent = 'Concatenate Video';
+        alert('Request failed: ' + e.message);
+    }
+}
+
+async function pollConcatenate() {
+    const btn = document.getElementById('concatenate-btn');
+    const interval = setInterval(async () => {
+        try {
+            const resp = await fetch(`/api/nights/{{ date_str }}/concatenate/status`);
+            const data = await resp.json();
+            if (data.status === 'completed') {
+                clearInterval(interval);
+                location.reload();
+            } else if (data.status.startsWith('error')) {
+                clearInterval(interval);
+                btn.disabled = false;
+                btn.textContent = 'Concatenate Video';
+                alert('Concatenation error: ' + data.status);
+            }
+        } catch (e) {
+            clearInterval(interval);
+            btn.disabled = false;
+            btn.textContent = 'Concatenate Video';
         }
     }, 2000);
 }

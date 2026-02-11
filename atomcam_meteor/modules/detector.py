@@ -22,6 +22,8 @@ class DetectionResult:
     line_count: int
     image_path: Optional[Path]
     lines: list[tuple[int, int, int, int]]
+    detection_groups: list[int] = dataclasses.field(default_factory=list)
+    fps: float = 0.0
 
 
 class MeteorDetector:
@@ -55,6 +57,30 @@ class MeteorDetector:
                 clip_path=str(clip_path),
             ) from exc
 
+    def _has_lines(self, composite: np.ndarray) -> bool:
+        """Check whether a diff composite contains any Hough lines."""
+        img = composite
+        if self._mask is not None:
+            mask_resized = self._mask
+            h, w = img.shape[:2]
+            mh, mw = mask_resized.shape[:2]
+            if (mh, mw) != (h, w):
+                mask_resized = cv2.resize(mask_resized, (w, h))
+            img = cv2.bitwise_and(img, mask_resized)
+        blurred = cv2.GaussianBlur(img, (5, 5), 0)
+        edges = cv2.Canny(
+            blurred, self._config.canny_threshold1, self._config.canny_threshold2
+        )
+        raw_lines = cv2.HoughLinesP(
+            edges,
+            rho=1,
+            theta=np.pi / 180,
+            threshold=50,
+            minLineLength=self._config.min_line_length,
+            maxLineGap=10,
+        )
+        return raw_lines is not None
+
     def _detect_impl(
         self, cap: cv2.VideoCapture, clip_path: Path, output_dir: Path
     ) -> DetectionResult:
@@ -81,6 +107,8 @@ class MeteorDetector:
         )
 
         final_composite: Optional[np.ndarray] = None
+        detection_groups: list[int] = []
+        group_index = 0
 
         while True:
             # Read one group of frames (grayscale)
@@ -106,17 +134,22 @@ class MeteorDetector:
             # Free group memory
             del group
 
-            # Lighten-composite into final result
+            # Check per-group detection and lighten-composite into final result
             if diff_composite is not None:
+                if self._has_lines(diff_composite):
+                    detection_groups.append(group_index)
                 if final_composite is None:
                     final_composite = diff_composite
                 else:
                     final_composite = cv2.max(final_composite, diff_composite)
 
+            group_index += 1
+
         if final_composite is None:
             logger.warning("No frames processed from %s", clip_path)
             return DetectionResult(
-                detected=False, line_count=0, image_path=None, lines=[]
+                detected=False, line_count=0, image_path=None, lines=[],
+                fps=fps,
             )
 
         # Apply mask if configured
@@ -145,7 +178,8 @@ class MeteorDetector:
         if raw_lines is None:
             logger.debug("No lines detected in %s", clip_path.name)
             return DetectionResult(
-                detected=False, line_count=0, image_path=None, lines=[]
+                detected=False, line_count=0, image_path=None, lines=[],
+                detection_groups=detection_groups, fps=fps,
             )
 
         lines = [(int(l[0][0]), int(l[0][1]), int(l[0][2]), int(l[0][3])) for l in raw_lines]
@@ -160,4 +194,6 @@ class MeteorDetector:
             line_count=len(lines),
             image_path=image_path,
             lines=lines,
+            detection_groups=detection_groups,
+            fps=fps,
         )

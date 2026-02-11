@@ -11,6 +11,7 @@ detection:
   canny_threshold1: 100
   canny_threshold2: 200
   exposure_duration_sec: 1.0
+  clip_margin_sec: 0.5
   mask_path: null
 
 schedule:

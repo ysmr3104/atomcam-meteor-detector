@@ -9,15 +9,16 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
 from atomcam_meteor.config import AppConfig
-from atomcam_meteor.services.db import StateDB
+from atomcam_meteor.services.db import ClipRepository, StateDB
 from atomcam_meteor.web.dependencies import get_config, get_db
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-# In-memory rebuild status tracking
+# In-memory status tracking
 _rebuild_status: dict[str, str] = {}
+_concatenate_status: dict[str, str] = {}
 
 
 # ── HTML pages ──────────────────────────────────────────────────────────
@@ -77,19 +78,25 @@ def night_page(
 
     for clip in clips:
         clip["image_url"] = None
-        clip["video_url"] = None
+        clip["video_urls"] = []
         if clip.get("detection_image"):
             try:
                 rel = Path(clip["detection_image"]).relative_to(output_dir)
                 clip["image_url"] = f"/media/output/{rel}"
             except ValueError:
                 pass
-        if clip.get("detected_video"):
+        video_paths = ClipRepository.get_detected_video_paths(clip)
+        for vp in video_paths:
+            vpath = Path(vp)
             try:
-                rel = Path(clip["detected_video"]).relative_to(download_dir)
-                clip["video_url"] = f"/media/downloads/{rel}"
+                rel = vpath.relative_to(output_dir)
+                clip["video_urls"].append(f"/media/output/{rel}")
             except ValueError:
-                pass
+                try:
+                    rel = vpath.relative_to(download_dir)
+                    clip["video_urls"].append(f"/media/downloads/{rel}")
+                except ValueError:
+                    pass
 
     templates = request.app.state.templates
     return templates.TemplateResponse(
@@ -150,7 +157,7 @@ def api_rebuild(
     background_tasks: BackgroundTasks,
     config: AppConfig = Depends(get_config),
 ) -> dict:
-    """Trigger rebuild of composite and video for a night."""
+    """Trigger rebuild of composite image for a night."""
     _rebuild_status[date_str] = "running"
     background_tasks.add_task(_do_rebuild, date_str, config)
     return {"date_str": date_str, "status": "started"}
@@ -163,8 +170,27 @@ def api_rebuild_status(date_str: str) -> dict:
     return {"date_str": date_str, "status": status}
 
 
+@router.post("/api/nights/{date_str}/concatenate")
+def api_concatenate(
+    date_str: str,
+    background_tasks: BackgroundTasks,
+    config: AppConfig = Depends(get_config),
+) -> dict:
+    """Trigger video concatenation for a night."""
+    _concatenate_status[date_str] = "running"
+    background_tasks.add_task(_do_concatenate, date_str, config)
+    return {"date_str": date_str, "status": "started"}
+
+
+@router.get("/api/nights/{date_str}/concatenate/status")
+def api_concatenate_status(date_str: str) -> dict:
+    """Check concatenation progress."""
+    status = _concatenate_status.get(date_str, "idle")
+    return {"date_str": date_str, "status": status}
+
+
 def _do_rebuild(date_str: str, config: AppConfig) -> None:
-    """Background task: rebuild composite and video."""
+    """Background task: rebuild composite image."""
     try:
         from atomcam_meteor.pipeline import Pipeline
         from atomcam_meteor.services.db import StateDB
@@ -172,10 +198,28 @@ def _do_rebuild(date_str: str, config: AppConfig) -> None:
         db = StateDB.from_path(config.paths.resolve_db_path())
         try:
             pipeline = Pipeline(config, db=db)
-            pipeline.rebuild_outputs(date_str)
+            pipeline.rebuild_composite(date_str)
         finally:
             db.close()
         _rebuild_status[date_str] = "completed"
     except Exception as exc:
         logger.error("Rebuild failed for %s: %s", date_str, exc)
         _rebuild_status[date_str] = f"error: {exc}"
+
+
+def _do_concatenate(date_str: str, config: AppConfig) -> None:
+    """Background task: concatenate detected clips into a single video."""
+    try:
+        from atomcam_meteor.pipeline import Pipeline
+        from atomcam_meteor.services.db import StateDB
+
+        db = StateDB.from_path(config.paths.resolve_db_path())
+        try:
+            pipeline = Pipeline(config, db=db)
+            pipeline.rebuild_concatenation(date_str)
+        finally:
+            db.close()
+        _concatenate_status[date_str] = "completed"
+    except Exception as exc:
+        logger.error("Concatenation failed for %s: %s", date_str, exc)
+        _concatenate_status[date_str] = f"error: {exc}"
