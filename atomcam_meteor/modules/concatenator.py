@@ -50,9 +50,7 @@ class Concatenator:
                 "-f", "concat",
                 "-safe", "0",
                 "-i", str(concat_list),
-                "-c:v", "libx264",
-                "-preset", "fast",
-                "-crf", "23",
+                "-c", "copy",
                 str(output_path),
             ]
             logger.info("Running: %s", " ".join(cmd))
