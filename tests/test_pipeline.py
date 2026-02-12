@@ -396,3 +396,56 @@ class TestPipeline:
         night_output = memory_db.nights.get_output("20250101")
         assert night_output is not None
         assert night_output["detection_count"] == 2
+
+
+class TestRedetectFromLocal:
+    def test_redetect_processes_local_files(self, mock_deps, tmp_path, memory_db):
+        """redetect_from_local should detect from local files without downloader."""
+        config, dl, det, comp, concat, ext, _ = mock_deps
+
+        # Create local files matching the time slots for 20250101
+        # prev_date_hours: 22,23 on 20241231; curr_date_hours: 0-5 on 20250101
+        dl_dir = tmp_path / "dl"
+        hour_dir = dl_dir / "20241231" / "22"
+        hour_dir.mkdir(parents=True)
+        (hour_dir / "00.mp4").write_bytes(b"video0")
+        (hour_dir / "01.mp4").write_bytes(b"video1")
+
+        det.detect.side_effect = [
+            DetectionResult(
+                detected=True, line_count=1,
+                image_path=tmp_path / "out" / "img.png",
+                lines=[(0, 0, 10, 10)], detection_groups=[0], fps=15.0,
+            ),
+            DetectionResult(
+                detected=False, line_count=0,
+                image_path=None, lines=[],
+            ),
+        ]
+        ext.compute_time_ranges.return_value = []
+
+        pipeline = Pipeline(config, downloader=dl, detector=det,
+                          compositor=comp, concatenator=concat, extractor=ext,
+                          db=memory_db)
+        result = pipeline.redetect_from_local("20250101")
+
+        assert result.clips_processed == 2
+        assert result.detections_found == 1
+        # Downloader should NOT be called
+        dl.download_hour.assert_not_called()
+        # Detector should be called for each local file
+        assert det.detect.call_count == 2
+
+    def test_redetect_no_local_files(self, mock_deps, tmp_path, memory_db):
+        """redetect_from_local with no local files should return zero results."""
+        config, dl, det, comp, concat, ext, _ = mock_deps
+
+        pipeline = Pipeline(config, downloader=dl, detector=det,
+                          compositor=comp, concatenator=concat, extractor=ext,
+                          db=memory_db)
+        result = pipeline.redetect_from_local("20250101")
+
+        assert result.clips_processed == 0
+        assert result.detections_found == 0
+        dl.download_hour.assert_not_called()
+        det.detect.assert_not_called()

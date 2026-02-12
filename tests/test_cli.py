@@ -60,6 +60,32 @@ class TestCLI:
         assert result.exit_code == 0
         assert "dry-run" in result.output.lower()
 
+    def test_redetect_help(self, runner):
+        result = runner.invoke(cli, ["redetect", "--help"])
+        assert result.exit_code == 0
+        assert "--date" in result.output
+
+    @patch("atomcam_meteor.pipeline.Pipeline")
+    @patch("atomcam_meteor.services.db.StateDB")
+    @patch("atomcam_meteor.services.lock.FileLock")
+    def test_redetect_command(self, mock_lock, mock_db, mock_pipeline, runner, tmp_path):
+        config_file = tmp_path / "settings.yaml"
+        config_file.write_text(f"paths:\n  lock_path: {tmp_path}/test.lock\n  db_path: {tmp_path}/test.db\n")
+
+        mock_lock.return_value.__enter__ = MagicMock()
+        mock_lock.return_value.__exit__ = MagicMock(return_value=False)
+        mock_db.from_path.return_value = MagicMock()
+
+        from atomcam_meteor.pipeline import PipelineResult
+        mock_pipeline.return_value.redetect_from_local.return_value = PipelineResult(
+            date_str="20250101", clips_processed=10, detections_found=2,
+            composite_path="/out/comp.jpg", video_path=None,
+        )
+
+        result = runner.invoke(cli, ["redetect", "--date", "20250101", "-c", str(config_file)])
+        assert result.exit_code == 0
+        assert "Detections: 2" in result.output
+
     def test_serve(self, runner, tmp_path):
         config_file = tmp_path / "settings.yaml"
         config_file.write_text(

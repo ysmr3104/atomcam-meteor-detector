@@ -39,8 +39,22 @@ class TestListClips:
     def test_empty_on_error(self, downloader):
         url = "http://testcam.local/sdcard/record/20250101/22/"
         respx.get(url).respond(500)
-        clips = downloader.list_clips("20250101", 22)
+        with patch("atomcam_meteor.modules.downloader.time.sleep"):
+            clips = downloader.list_clips("20250101", 22)
         assert clips == []
+
+    @respx.mock
+    def test_list_clips_retry_success(self, downloader):
+        """list_clips should retry and succeed on second attempt."""
+        url = "http://testcam.local/sdcard/record/20250101/22/"
+        respx.get(url).mock(side_effect=[
+            httpx.ConnectError("fail"),
+            httpx.Response(200, text='<a href="00.mp4">00.mp4</a>'),
+        ])
+        with patch("atomcam_meteor.modules.downloader.time.sleep"):
+            clips = downloader.list_clips("20250101", 22)
+        assert len(clips) == 1
+        assert clips[0].endswith("00.mp4")
 
 
 class TestDownloadClip:
