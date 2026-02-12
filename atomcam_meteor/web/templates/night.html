@@ -40,23 +40,13 @@
         <div class="clip-card{% if clip.excluded %} excluded{% endif %}" data-clip-id="{{ clip.id }}">
             {% if clip.image_url %}
             <a href="{{ clip.image_url }}" target="_blank">
-                <img src="{{ clip.image_url }}" alt="Detection {{ clip.hour }}:{{ clip.minute }}" loading="lazy">
+                <img src="{{ clip.image_url }}" alt="Detection {{ clip.actual_datetime }}" loading="lazy">
             </a>
             {% endif %}
             <div class="meta">
-                <strong>{{ clip.actual_datetime }}</strong>
+                <strong>{{ clip.actual_datetime }}:00</strong>
                 | {{ clip.line_count }} line(s)
             </div>
-            {% if clip.video_urls %}
-            <details>
-                <summary>Video ({{ clip.video_urls|length }} clip{{ "s" if clip.video_urls|length > 1 else "" }})</summary>
-                {% for vurl in clip.video_urls %}
-                <video controls class="video-player" preload="metadata" style="margin-top:0.5rem;">
-                    <source src="{{ vurl }}" type="video/mp4">
-                </video>
-                {% endfor %}
-            </details>
-            {% endif %}
             <button class="toggle-btn {% if clip.excluded %}contrast{% else %}outline{% endif %}"
                     onclick="toggleExcluded({{ clip.id }}, {{ 'false' if clip.excluded else 'true' }})">
                 {{ "Excluded" if clip.excluded else "Included" }}
