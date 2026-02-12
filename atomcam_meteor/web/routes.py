@@ -113,6 +113,7 @@ def night_page(
 
     for clip in clips:
         clip["image_url"] = None
+        clip["line_image_urls"] = []
         clip["video_urls"] = []
         if clip.get("detection_image"):
             try:
@@ -120,6 +121,16 @@ def night_page(
                 clip["image_url"] = f"/media/output/{rel}"
             except ValueError:
                 pass
+            # Discover per-line crop images
+            detect_path = Path(clip["detection_image"])
+            stem = detect_path.stem.replace("_detect", "")
+            parent = detect_path.parent
+            for lp in sorted(parent.glob(f"{stem}_line*.png")):
+                try:
+                    rel = lp.relative_to(output_dir)
+                    clip["line_image_urls"].append(f"/media/output/{rel}")
+                except ValueError:
+                    pass
         video_paths = ClipRepository.get_detected_video_paths(clip)
         for vp in video_paths:
             vpath = Path(vp)

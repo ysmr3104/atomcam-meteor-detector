@@ -261,6 +261,9 @@ class MeteorDetector:
         image_path = output_dir / f"{clip_path.stem}_detect.png"
         cv2.imwrite(str(image_path), color_composite)
 
+        # Save per-line crop images
+        self._save_line_crops(color_composite, lines, output_dir, clip_path.stem)
+
         return DetectionResult(
             detected=True,
             line_count=len(lines),
@@ -269,3 +272,32 @@ class MeteorDetector:
             detection_groups=detection_groups,
             fps=fps,
         )
+
+    @staticmethod
+    def _save_line_crops(
+        composite: np.ndarray,
+        lines: list[tuple[int, int, int, int]],
+        output_dir: Path,
+        stem: str,
+        padding: int = 80,
+        min_size: int = 120,
+    ) -> None:
+        """Save cropped images around each detected line."""
+        h, w = composite.shape[:2]
+        for i, (x1, y1, x2, y2) in enumerate(lines):
+            cy1 = max(0, min(y1, y2) - padding)
+            cy2 = min(h, max(y1, y2) + padding)
+            cx1 = max(0, min(x1, x2) - padding)
+            cx2 = min(w, max(x1, x2) + padding)
+            # Ensure minimum crop size
+            if cy2 - cy1 < min_size:
+                mid = (cy1 + cy2) // 2
+                cy1 = max(0, mid - min_size // 2)
+                cy2 = min(h, cy1 + min_size)
+            if cx2 - cx1 < min_size:
+                mid = (cx1 + cx2) // 2
+                cx1 = max(0, mid - min_size // 2)
+                cx2 = min(w, cx1 + min_size)
+            crop = composite[cy1:cy2, cx1:cx2]
+            line_path = output_dir / f"{stem}_line{i}.png"
+            cv2.imwrite(str(line_path), crop)

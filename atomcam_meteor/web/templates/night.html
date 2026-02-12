@@ -43,12 +43,27 @@
     <div class="clip-grid">
         {% for clip in clips %}
         {% if clip.status == 'detected' %}
+        {% if clip.line_image_urls %}
+        {% for lurl in clip.line_image_urls %}
         <div class="clip-card{% if clip.excluded %} excluded{% endif %}" data-clip-id="{{ clip.id }}">
-            {% if clip.image_url %}
+            <a href="{{ lurl }}" target="_blank">
+                <img src="{{ lurl }}" alt="Line {{ loop.index }}" loading="lazy">
+            </a>
+            <div class="meta">
+                <strong>{{ clip.actual_datetime }}:00</strong>
+                | line {{ loop.index }}/{{ clip.line_image_urls|length }}
+            </div>
+            <button class="toggle-btn {% if clip.excluded %}contrast{% else %}outline{% endif %}"
+                    onclick="toggleExcluded({{ clip.id }}, {{ 'false' if clip.excluded else 'true' }})">
+                {{ "Excluded" if clip.excluded else "Included" }}
+            </button>
+        </div>
+        {% endfor %}
+        {% elif clip.image_url %}
+        <div class="clip-card{% if clip.excluded %} excluded{% endif %}" data-clip-id="{{ clip.id }}">
             <a href="{{ clip.image_url }}" target="_blank">
                 <img src="{{ clip.image_url }}" alt="Detection {{ clip.actual_datetime }}" loading="lazy">
             </a>
-            {% endif %}
             <div class="meta">
                 <strong>{{ clip.actual_datetime }}:00</strong>
                 | {{ clip.line_count }} line(s)
@@ -58,6 +73,7 @@
                 {{ "Excluded" if clip.excluded else "Included" }}
             </button>
         </div>
+        {% endif %}
         {% endif %}
         {% endfor %}
     </div>
