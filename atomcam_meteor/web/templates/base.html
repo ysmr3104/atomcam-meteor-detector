@@ -7,6 +7,17 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
     <style>
         :root { --pico-font-size: 16px; }
+        .site-title {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            text-decoration: none;
+        }
+        .site-logo {
+            height: 2.5rem;
+            width: auto;
+            border-radius: 50%;
+        }
         .clip-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -66,7 +77,14 @@
 <body>
     <header class="container">
         <nav>
-            <ul><li><a href="/"><strong>atomcam-meteor-detector</strong></a></li></ul>
+            <ul>
+                <li>
+                    <a href="/" class="site-title">
+                        <strong>atomcam-meteor-detector</strong>
+                        <img src="/static/img/logo.png" alt="Logo" class="site-logo">
+                    </a>
+                </li>
+            </ul>
         </nav>
     </header>
     <main class="container">
