@@ -13,3 +13,4 @@ config/settings.yaml
 htmlcov/
 .coverage
 CLAUDE.md
+.DS_Store
