@@ -4,19 +4,34 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{% block title %}atomcam-meteor-detector{% endblock %}</title>
+    <link rel="icon" type="image/png" href="/static/img/logo.png">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
     <style>
         :root { --pico-font-size: 16px; }
-        .site-title {
-            display: inline-flex;
+        .site-banner {
+            background: #1a1a3e;
+            padding: 0.75rem 2rem;
+            display: flex;
             align-items: center;
-            gap: 0.5rem;
+            gap: 1rem;
+        }
+        .site-banner a {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
             text-decoration: none;
+            color: #fff;
         }
         .site-logo {
-            height: 2.5rem;
+            height: 4.5rem;
             width: auto;
             border-radius: 50%;
+        }
+        .site-banner strong {
+            font-size: 1.8rem;
+            font-weight: 300;
+            color: #fff;
+            letter-spacing: 0.02em;
         }
         .clip-grid {
             display: grid;
@@ -75,17 +90,11 @@
     </style>
 </head>
 <body>
-    <header class="container">
-        <nav>
-            <ul>
-                <li>
-                    <a href="/" class="site-title">
-                        <strong>atomcam-meteor-detector</strong>
-                        <img src="/static/img/logo.png" alt="Logo" class="site-logo">
-                    </a>
-                </li>
-            </ul>
-        </nav>
+    <header class="site-banner">
+        <a href="/">
+            <img src="/static/img/logo.png" alt="Logo" class="site-logo">
+            <strong>atomcam-meteor-detect</strong>
+        </a>
     </header>
     <main class="container">
         {% block content %}{% endblock %}
