@@ -22,12 +22,12 @@
 <section>
     <hgroup>
         <h2>Detected Clips</h2>
-        <p>
+        <p style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
             {% if night_output %}{{ night_output.detection_count }}{% else %}0{% endif %} detection(s)
-            <button id="rebuild-btn" onclick="triggerRebuild()" class="outline" style="margin-left:1rem;">
+            <button id="rebuild-btn" onclick="triggerRebuild()" class="outline" style="margin:0; padding:0.25rem 0.75rem;">
                 Rebuild Composite
             </button>
-            <button id="concatenate-btn" onclick="triggerConcatenate()" class="outline" style="margin-left:0.5rem;">
+            <button id="concatenate-btn" onclick="triggerConcatenate()" class="outline" style="margin:0; padding:0.25rem 0.75rem;">
                 Concatenate Video
             </button>
         </p>
