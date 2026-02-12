@@ -24,12 +24,18 @@
     <hgroup>
         <h2>Detected Clips</h2>
         <p>{% if night_output %}{{ night_output.detection_count }}{% else %}0{% endif %} detection(s)</p>
-        <p style="display:flex; align-items:center; gap:0.5rem; margin-top:0;">
+        <p style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-top:0;">
             <button id="rebuild-btn" onclick="triggerRebuild()" class="outline" style="margin:0; padding:0.25rem 0.75rem;">
                 Rebuild Composite
             </button>
             <button id="concatenate-btn" onclick="triggerConcatenate()" class="outline" style="margin:0; padding:0.25rem 0.75rem;">
                 Concatenate Video
+            </button>
+            <button onclick="setAllExcluded(false)" class="outline" style="margin:0; padding:0.25rem 0.75rem;">
+                Include All
+            </button>
+            <button onclick="setAllExcluded(true)" class="outline secondary" style="margin:0; padding:0.25rem 0.75rem;">
+                Exclude All
             </button>
         </p>
     </hgroup>
@@ -60,6 +66,21 @@
 
 {% block scripts %}
 <script>
+async function setAllExcluded(excluded) {
+    const cards = document.querySelectorAll('.clip-card[data-clip-id]');
+    const ids = Array.from(cards).map(c => c.dataset.clipId);
+    for (const id of ids) {
+        try {
+            await fetch(`/api/clips/${id}`, {
+                method: 'PATCH',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({excluded: excluded}),
+            });
+        } catch (e) { /* continue */ }
+    }
+    location.reload();
+}
+
 async function toggleExcluded(clipId, excluded) {
     try {
         const resp = await fetch(`/api/clips/${clipId}`, {
