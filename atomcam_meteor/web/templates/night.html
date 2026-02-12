@@ -22,8 +22,8 @@
 <section>
     <hgroup>
         <h2>Detected Clips</h2>
-        <p style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap;">
-            {% if night_output %}{{ night_output.detection_count }}{% else %}0{% endif %} detection(s)
+        <p>{% if night_output %}{{ night_output.detection_count }}{% else %}0{% endif %} detection(s)</p>
+        <p style="display:flex; align-items:center; gap:0.5rem; margin-top:0;">
             <button id="rebuild-btn" onclick="triggerRebuild()" class="outline" style="margin:0; padding:0.25rem 0.75rem;">
                 Rebuild Composite
             </button>
