@@ -57,6 +57,55 @@ class MeteorDetector:
                 clip_path=str(clip_path),
             ) from exc
 
+    def _score_groups_by_lines(
+        self,
+        diff_composites: list[np.ndarray],
+        lines: list[tuple[int, int, int, int]],
+        shape: tuple[int, int],
+    ) -> list[int]:
+        """Find groups with significant brightness along detected line paths.
+
+        Used as a fallback when per-group ``_has_lines()`` finds nothing but
+        the final composite *does* contain lines.  A dilated mask is built
+        from the line coordinates and each group's diff composite is scored
+        under that mask.  Groups whose scores are statistical outliers
+        (above median + 3 * MAD) are returned.
+        """
+        # Build a dilated mask from detected line positions
+        mask = np.zeros(shape, dtype=np.uint8)
+        for x1, y1, x2, y2 in lines:
+            cv2.line(mask, (x1, y1), (x2, y2), 255, thickness=5)
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (11, 11))
+        mask = cv2.dilate(mask, kernel)
+
+        mask_pixels = int(np.count_nonzero(mask))
+        if mask_pixels == 0:
+            return []
+
+        # Score each group
+        scores: list[float] = []
+        for dc in diff_composites:
+            masked = cv2.bitwise_and(dc, mask)
+            scores.append(float(np.sum(masked)) / mask_pixels)
+
+        if not scores:
+            return []
+
+        score_arr = np.array(scores)
+        median = float(np.median(score_arr))
+        mad = float(np.median(np.abs(score_arr - median)))
+        if mad < 1.0:
+            mad = 1.0
+        threshold = median + 3.0 * mad
+
+        result = sorted(i for i, s in enumerate(scores) if s >= threshold)
+        if result:
+            logger.debug(
+                "Fallback group detection found %d group(s): %s (threshold=%.1f)",
+                len(result), result, threshold,
+            )
+        return result
+
     def _has_lines(self, composite: np.ndarray) -> bool:
         """Check whether a diff composite contains any Hough lines."""
         img = composite
@@ -108,6 +157,7 @@ class MeteorDetector:
 
         final_composite: Optional[np.ndarray] = None
         color_composite: Optional[np.ndarray] = None
+        diff_composites: list[np.ndarray] = []
         detection_groups: list[int] = []
         group_index = 0
 
@@ -148,6 +198,7 @@ class MeteorDetector:
                     final_composite = diff_composite
                 else:
                     final_composite = cv2.max(final_composite, diff_composite)
+                diff_composites.append(diff_composite)
 
             # Accumulate color composite for output image
             if group_color_comp is not None:
@@ -190,6 +241,7 @@ class MeteorDetector:
 
         if raw_lines is None:
             logger.debug("No lines detected in %s", clip_path.name)
+            del diff_composites
             return DetectionResult(
                 detected=False, line_count=0, image_path=None, lines=[],
                 detection_groups=detection_groups, fps=fps,
@@ -197,6 +249,13 @@ class MeteorDetector:
 
         lines = [(int(l[0][0]), int(l[0][1]), int(l[0][2]), int(l[0][3])) for l in raw_lines]
         logger.info("Detected %d line(s) in %s", len(lines), clip_path.name)
+
+        # Fallback: if per-group Hough found nothing, use line-position scoring
+        if not detection_groups and diff_composites:
+            detection_groups = self._score_groups_by_lines(
+                diff_composites, lines, final_composite.shape[:2],
+            )
+        del diff_composites
 
         output_dir.mkdir(parents=True, exist_ok=True)
         image_path = output_dir / f"{clip_path.stem}_detect.png"
