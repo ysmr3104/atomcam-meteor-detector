@@ -97,9 +97,7 @@ class ClipExtractor:
                 "-ss", f"{tr.start_sec:.3f}",
                 "-i", str(source_path),
                 "-t", f"{tr.duration:.3f}",
-                "-c:v", "libx264",
-                "-preset", "fast",
-                "-crf", "23",
+                "-c", "copy",
                 "-an",
                 str(out_path),
             ]
