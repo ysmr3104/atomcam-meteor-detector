@@ -10,7 +10,7 @@ from atomcam_meteor.config import AppConfig
 from atomcam_meteor.exceptions import AtomcamError
 from atomcam_meteor.modules.detector import DetectionResult
 from atomcam_meteor.pipeline import Pipeline, PipelineResult
-from atomcam_meteor.services.db import ClipStatus
+from atomcam_meteor.services.db import ClipStatus, StateDB
 
 
 @pytest.fixture
@@ -189,3 +189,210 @@ class TestPipeline:
                           compositor=comp, concatenator=concat, extractor=ext, db=None)
         with pytest.raises(AtomcamError, match="Database required"):
             pipeline.rebuild_outputs("20250101")
+
+    def test_skip_already_processed_clip(self, mock_deps, tmp_path, memory_db):
+        """Already-detected clips should be skipped; detector must not be called."""
+        config, dl, det, comp, concat, ext, _ = mock_deps
+        clip_path = tmp_path / "dl" / "20250101" / "22" / "00.mp4"
+        clip_path.parent.mkdir(parents=True)
+        clip_path.write_bytes(b"video")
+        img_path = tmp_path / "out" / "detect.png"
+        img_path.parent.mkdir(parents=True)
+        img_path.write_bytes(b"img")
+
+        # Pre-populate DB with a detected clip
+        memory_db.clips.upsert_clip(
+            "http://cam/20250101/22/00.mp4", "20250101", 22, 0,
+            local_path=str(clip_path), status=ClipStatus.DOWNLOADED,
+        )
+        memory_db.clips.update_clip_status(
+            "http://cam/20250101/22/00.mp4", ClipStatus.DETECTED,
+            detection_image=str(img_path), line_count=2,
+        )
+
+        dl.download_hour.side_effect = [
+            [("http://cam/20250101/22/00.mp4", clip_path)],
+        ] + [[] for _ in range(7)]
+
+        pipeline = Pipeline(config, downloader=dl, detector=det,
+                          compositor=comp, concatenator=concat, extractor=ext,
+                          db=memory_db)
+        result = pipeline.execute("20250101")
+
+        # Detector should NOT be called for the already-processed clip
+        det.detect.assert_not_called()
+        # But the detection should still be counted
+        assert result.detections_found == 1
+
+    def test_skip_no_detection_clip(self, mock_deps, tmp_path, memory_db):
+        """Clips with NO_DETECTION status should be skipped."""
+        config, dl, det, comp, concat, ext, _ = mock_deps
+        clip_path = tmp_path / "dl" / "20250101" / "22" / "00.mp4"
+        clip_path.parent.mkdir(parents=True)
+        clip_path.write_bytes(b"video")
+
+        memory_db.clips.upsert_clip(
+            "http://cam/20250101/22/00.mp4", "20250101", 22, 0,
+            local_path=str(clip_path), status=ClipStatus.DOWNLOADED,
+        )
+        memory_db.clips.update_clip_status(
+            "http://cam/20250101/22/00.mp4", ClipStatus.NO_DETECTION,
+        )
+
+        dl.download_hour.side_effect = [
+            [("http://cam/20250101/22/00.mp4", clip_path)],
+        ] + [[] for _ in range(7)]
+
+        pipeline = Pipeline(config, downloader=dl, detector=det,
+                          compositor=comp, concatenator=concat, extractor=ext,
+                          db=memory_db)
+        result = pipeline.execute("20250101")
+
+        det.detect.assert_not_called()
+        assert result.detections_found == 0
+
+    @patch("atomcam_meteor.pipeline.datetime")
+    def test_filter_future_slots(self, mock_dt, mock_deps):
+        """Future time slots should be filtered out."""
+        config, *_ = mock_deps
+        # Simulate running at 23:30 on Dec 31
+        mock_dt.now.return_value = datetime(2024, 12, 31, 23, 30)
+        mock_dt.strptime = datetime.strptime
+        pipeline = Pipeline(config, downloader=MagicMock(), detector=MagicMock(),
+                          compositor=MagicMock(), concatenator=MagicMock(),
+                          extractor=MagicMock())
+        all_slots = pipeline._build_time_slots("20250101")
+        filtered = pipeline._filter_available_slots(all_slots)
+        # Only 22:00 and 23:00 of Dec 31 should remain (0-5 of Jan 1 are future)
+        assert len(filtered) == 2
+        assert filtered[0] == ("20241231", 22)
+        assert filtered[1] == ("20241231", 23)
+
+    @patch("atomcam_meteor.pipeline.datetime")
+    def test_filter_all_slots_past(self, mock_dt, mock_deps):
+        """When running after all slots (e.g. morning), all slots should pass."""
+        config, *_ = mock_deps
+        mock_dt.now.return_value = datetime(2025, 1, 1, 8, 0)
+        mock_dt.strptime = datetime.strptime
+        pipeline = Pipeline(config, downloader=MagicMock(), detector=MagicMock(),
+                          compositor=MagicMock(), concatenator=MagicMock(),
+                          extractor=MagicMock())
+        all_slots = pipeline._build_time_slots("20250101")
+        filtered = pipeline._filter_available_slots(all_slots)
+        assert len(filtered) == 8
+
+    def test_incremental_composite(self, mock_deps, tmp_path, memory_db):
+        """Incremental compositing should pass existing_composite to compositor."""
+        config, dl, det, comp, concat, ext, _ = mock_deps
+        output_dir = tmp_path / "out" / "20250101"
+        output_dir.mkdir(parents=True)
+
+        # Simulate existing composite from prior run
+        existing_comp = output_dir / "20250101_composite.jpg"
+        existing_comp.write_bytes(b"existing")
+
+        # Pre-populate DB with a prior detection (already processed)
+        old_img = tmp_path / "out" / "old_detect.png"
+        old_img.parent.mkdir(parents=True, exist_ok=True)
+        old_img.write_bytes(b"old")
+        memory_db.clips.upsert_clip(
+            "http://cam/20241231/22/00.mp4", "20250101", 22, 0,
+            local_path="/dl/00.mp4", status=ClipStatus.DOWNLOADED,
+        )
+        memory_db.clips.update_clip_status(
+            "http://cam/20241231/22/00.mp4", ClipStatus.DETECTED,
+            detection_image=str(old_img), line_count=1,
+        )
+
+        # New clip to process
+        clip_path = tmp_path / "dl" / "20241231" / "23" / "05.mp4"
+        clip_path.parent.mkdir(parents=True)
+        clip_path.write_bytes(b"video")
+        new_img = tmp_path / "out" / "new_detect.png"
+
+        dl.download_hour.side_effect = [
+            # hour 22: already-processed clip
+            [("http://cam/20241231/22/00.mp4", tmp_path / "dl" / "22" / "00.mp4")],
+            # hour 23: new clip
+            [("http://cam/20241231/23/05.mp4", clip_path)],
+        ] + [[] for _ in range(6)]
+
+        det.detect.return_value = DetectionResult(
+            detected=True, line_count=3,
+            image_path=new_img, lines=[(0, 0, 10, 10)],
+            detection_groups=[0], fps=15.0,
+        )
+        ext.compute_time_ranges.return_value = []
+
+        pipeline = Pipeline(config, downloader=dl, detector=det,
+                          compositor=comp, concatenator=concat, extractor=ext,
+                          db=memory_db)
+        result = pipeline.execute("20250101")
+
+        # Compositor should be called with only the NEW image
+        comp.composite.assert_called_once()
+        call_args = comp.composite.call_args
+        assert call_args[0][0] == [new_img]  # only new images
+        assert call_args[1]["existing_composite"] == existing_comp
+
+    def test_no_new_detections_preserves_composite(self, mock_deps, tmp_path, memory_db):
+        """When no new detections, existing composite should be preserved."""
+        config, dl, det, comp, concat, ext, _ = mock_deps
+        output_dir = tmp_path / "out" / "20250101"
+        output_dir.mkdir(parents=True)
+
+        existing_comp = output_dir / "20250101_composite.jpg"
+        existing_comp.write_bytes(b"existing")
+
+        # All clips already processed, no new detections
+        dl.download_hour.side_effect = [[] for _ in range(8)]
+
+        pipeline = Pipeline(config, downloader=dl, detector=det,
+                          compositor=comp, concatenator=concat, extractor=ext,
+                          db=memory_db)
+        result = pipeline.execute("20250101")
+
+        comp.composite.assert_not_called()
+        assert result.composite_path == str(existing_comp)
+
+    def test_cumulative_detection_count_in_db(self, mock_deps, tmp_path, memory_db):
+        """Night output should store cumulative detection count from DB."""
+        config, dl, det, comp, concat, ext, _ = mock_deps
+
+        # Pre-populate DB with a prior detection
+        memory_db.clips.upsert_clip(
+            "http://cam/20241231/22/00.mp4", "20250101", 22, 0,
+            local_path="/dl/00.mp4", status=ClipStatus.DOWNLOADED,
+        )
+        memory_db.clips.update_clip_status(
+            "http://cam/20241231/22/00.mp4", ClipStatus.DETECTED,
+            detection_image="/img1.png", line_count=1,
+        )
+
+        # New clip that also has a detection
+        clip_path = tmp_path / "dl" / "20241231" / "23" / "05.mp4"
+        clip_path.parent.mkdir(parents=True)
+        clip_path.write_bytes(b"video")
+        new_img = tmp_path / "out" / "new_detect.png"
+
+        dl.download_hour.side_effect = [
+            [("http://cam/20241231/22/00.mp4", tmp_path / "dl" / "00.mp4")],
+            [("http://cam/20241231/23/05.mp4", clip_path)],
+        ] + [[] for _ in range(6)]
+
+        det.detect.return_value = DetectionResult(
+            detected=True, line_count=2,
+            image_path=new_img, lines=[(0, 0, 10, 10)],
+            detection_groups=[0], fps=15.0,
+        )
+        ext.compute_time_ranges.return_value = []
+
+        pipeline = Pipeline(config, downloader=dl, detector=det,
+                          compositor=comp, concatenator=concat, extractor=ext,
+                          db=memory_db)
+        pipeline.execute("20250101")
+
+        # DB should have cumulative count = 2 (1 old + 1 new)
+        night_output = memory_db.nights.get_output("20250101")
+        assert night_output is not None
+        assert night_output["detection_count"] == 2

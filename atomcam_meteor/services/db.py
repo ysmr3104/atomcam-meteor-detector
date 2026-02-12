@@ -96,9 +96,17 @@ class ClipRepository:
         status: str = ClipStatus.PENDING,
     ) -> None:
         self._conn.execute(
-            """INSERT OR REPLACE INTO clips
+            """INSERT INTO clips
                (clip_url, date_str, hour, minute, local_path, status, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, datetime('now'))""",
+               VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+               ON CONFLICT(clip_url) DO UPDATE SET
+                   local_path = COALESCE(excluded.local_path, clips.local_path),
+                   status = CASE
+                       WHEN clips.status IN ('detected', 'no_detection', 'error')
+                       THEN clips.status
+                       ELSE excluded.status
+                   END,
+                   updated_at = datetime('now')""",
             (clip_url, date_str, hour, minute, local_path, status),
         )
         self._conn.commit()

@@ -107,32 +107,38 @@ class MeteorDetector:
         )
 
         final_composite: Optional[np.ndarray] = None
+        color_composite: Optional[np.ndarray] = None
         detection_groups: list[int] = []
         group_index = 0
 
         while True:
-            # Read one group of frames (grayscale)
-            group: list[np.ndarray] = []
+            # Read one group of frames (grayscale for detection, color for output)
+            group_gray: list[np.ndarray] = []
+            group_color_comp: Optional[np.ndarray] = None
             for _ in range(frames_per_group):
                 ret, frame = cap.read()
                 if not ret:
                     break
-                group.append(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
+                group_gray.append(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
+                if group_color_comp is None:
+                    group_color_comp = frame
+                else:
+                    group_color_comp = cv2.max(group_color_comp, frame)
 
-            if len(group) < 2:
+            if len(group_gray) < 2:
                 break
 
             # Pairwise differences within the group
             diff_composite: Optional[np.ndarray] = None
-            for i in range(len(group) - 1):
-                diff = cv2.subtract(group[i + 1], group[i])
+            for i in range(len(group_gray) - 1):
+                diff = cv2.subtract(group_gray[i + 1], group_gray[i])
                 if diff_composite is None:
                     diff_composite = diff
                 else:
                     diff_composite = cv2.max(diff_composite, diff)
 
             # Free group memory
-            del group
+            del group_gray
 
             # Check per-group detection and lighten-composite into final result
             if diff_composite is not None:
@@ -142,6 +148,13 @@ class MeteorDetector:
                     final_composite = diff_composite
                 else:
                     final_composite = cv2.max(final_composite, diff_composite)
+
+            # Accumulate color composite for output image
+            if group_color_comp is not None:
+                if color_composite is None:
+                    color_composite = group_color_comp
+                else:
+                    color_composite = cv2.max(color_composite, group_color_comp)
 
             group_index += 1
 
@@ -187,7 +200,7 @@ class MeteorDetector:
 
         output_dir.mkdir(parents=True, exist_ok=True)
         image_path = output_dir / f"{clip_path.stem}_detect.png"
-        cv2.imwrite(str(image_path), final_composite)
+        cv2.imwrite(str(image_path), color_composite)
 
         return DetectionResult(
             detected=True,

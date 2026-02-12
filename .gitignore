@@ -12,3 +12,4 @@ config/settings.yaml
 .ruff_cache/
 htmlcov/
 .coverage
+CLAUDE.md

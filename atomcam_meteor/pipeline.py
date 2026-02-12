@@ -80,10 +80,12 @@ class Pipeline:
 
         # Build list of (date_for_dir, hour) pairs
         time_slots = self._build_time_slots(date_str)
+        time_slots = self._filter_available_slots(time_slots)
 
         clips_processed = 0
         detections_found = 0
         detected_images: list[Path] = []
+        new_detected_images: list[Path] = []
 
         for slot_date, hour in time_slots:
             try:
@@ -103,6 +105,20 @@ class Pipeline:
                             local_path=str(local_path),
                             status=ClipStatus.DOWNLOADED,
                         )
+                        existing = self._db.clips.get_clip(clip_url)
+                        if existing and existing["status"] in (
+                            ClipStatus.DETECTED,
+                            ClipStatus.NO_DETECTION,
+                            ClipStatus.ERROR,
+                        ):
+                            logger.debug("Skipping already-processed clip: %s", clip_url)
+                            if (
+                                existing["status"] == ClipStatus.DETECTED
+                                and existing.get("detection_image")
+                            ):
+                                detected_images.append(Path(existing["detection_image"]))
+                                detections_found += 1
+                            continue
 
                     try:
                         result = self._detector.detect(local_path, output_dir)
@@ -122,6 +138,7 @@ class Pipeline:
                         detections_found += 1
                         if result.image_path:
                             detected_images.append(result.image_path)
+                            new_detected_images.append(result.image_path)
 
                         # Extract short clips around detected groups
                         detected_video_json = self._extract_short_clips(
@@ -164,24 +181,36 @@ class Pipeline:
             )
 
         composite_path: str | None = None
+        comp_out = output_dir / f"{date_str}_composite.jpg"
 
-        if detected_images:
+        if new_detected_images:
             try:
-                comp_out = output_dir / f"{date_str}_composite.jpg"
-                self._compositor.composite(detected_images, comp_out)
+                existing_comp = comp_out if comp_out.exists() else None
+                self._compositor.composite(
+                    new_detected_images, comp_out, existing_composite=existing_comp,
+                )
                 composite_path = str(comp_out)
             except AtomcamError as exc:
                 logger.error("Compositing failed: %s", exc)
                 self._hooks.fire_error(ErrorEvent(
                     stage="composite", error=str(exc), context={"date": date_str},
                 ))
+        elif comp_out.exists():
+            composite_path = str(comp_out)
 
         if self._db:
+            all_detected = self._db.clips.get_detected_clips(date_str)
+            cumulative_count = len(all_detected)
+            existing_output = self._db.nights.get_output(date_str)
+            existing_video = (
+                existing_output.get("concat_video") if existing_output else None
+            )
+
             self._db.nights.upsert_output(
                 date_str,
                 composite_image=composite_path,
-                concat_video=None,
-                detection_count=detections_found,
+                concat_video=existing_video,
+                detection_count=cumulative_count,
             )
 
         self._hooks.fire_night_complete(NightCompleteEvent(
@@ -336,6 +365,23 @@ class Pipeline:
         else:
             target = now + timedelta(days=1)
         return target.strftime("%Y%m%d")
+
+    def _filter_available_slots(
+        self, slots: list[tuple[str, int]],
+    ) -> list[tuple[str, int]]:
+        """Remove time slots that are still in the future.
+
+        When the pipeline runs during the observation night (e.g. at 23:00),
+        hours that haven't started yet (0-5) would produce unnecessary HTTP
+        requests to the camera.  This filter keeps only past-or-current slots.
+        """
+        now = datetime.now()
+        available: list[tuple[str, int]] = []
+        for slot_date, hour in slots:
+            slot_dt = datetime.strptime(slot_date, "%Y%m%d").replace(hour=hour)
+            if slot_dt <= now:
+                available.append((slot_date, hour))
+        return available
 
     def _build_time_slots(self, date_str: str) -> list[tuple[str, int]]:
         """Build (directory_date, hour) pairs for the observation night.
