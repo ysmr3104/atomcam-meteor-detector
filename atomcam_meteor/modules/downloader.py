@@ -31,19 +31,29 @@ class Downloader:
         base_url = f"http://{self.config.host}/{self.config.base_path}"
         hour_url = f"{base_url}/{date_str}/{hour:02d}/"
 
-        try:
-            resp = httpx.get(
-                hour_url,
-                auth=self._auth,
-                timeout=self.config.timeout_sec,
-            )
-            resp.raise_for_status()
-        except httpx.HTTPError as exc:
-            logger.warning("Failed to list clips at %s: %s", hour_url, exc)
-            return []
+        last_exc: Exception | None = None
+        for attempt in range(1, self.config.retry_count + 1):
+            try:
+                resp = httpx.get(
+                    hour_url,
+                    auth=self._auth,
+                    timeout=self.config.timeout_sec,
+                )
+                resp.raise_for_status()
+                filenames = re.findall(r'href="(\d{2}\.mp4)"', resp.text)
+                return [f"{hour_url}{fn}" for fn in sorted(filenames)]
+            except httpx.HTTPError as exc:
+                last_exc = exc
+                logger.warning(
+                    "list_clips attempt %d/%d failed for %s: %s",
+                    attempt, self.config.retry_count, hour_url, exc,
+                )
+                if attempt < self.config.retry_count:
+                    time.sleep(2)
 
-        filenames = re.findall(r'href="(\d{2}\.mp4)"', resp.text)
-        return [f"{hour_url}{fn}" for fn in sorted(filenames)]
+        logger.warning("Failed to list clips at %s after %d attempts: %s",
+                        hour_url, self.config.retry_count, last_exc)
+        return []
 
     def download_clip(self, url: str, dest_dir: Path) -> Path:
         """Download a single clip with streaming and retry logic.

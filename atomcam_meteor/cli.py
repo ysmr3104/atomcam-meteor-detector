@@ -60,6 +60,38 @@ def run(config_path: str | None, date_str: str | None, dry_run: bool, verbose: i
 @click.option("-c", "--config", "config_path", type=click.Path(exists=True), default=None,
               help="Path to config YAML file.")
 @click.option("--date", "date_str", default=None, help="Target date (YYYYMMDD).")
+@click.option("-v", "--verbose", count=True, help="Increase verbosity (-v INFO, -vv DEBUG).")
+def redetect(config_path: str | None, date_str: str | None, verbose: int) -> None:
+    """Re-run detection on local files without camera access."""
+    setup_logging(verbose)
+    config = _load(config_path)
+
+    from atomcam_meteor.hooks import HookRunner, LoggingHook
+    from atomcam_meteor.pipeline import Pipeline
+    from atomcam_meteor.services.db import StateDB
+    from atomcam_meteor.services.lock import FileLock
+
+    hooks = HookRunner([LoggingHook()])
+
+    with FileLock(config.paths.resolve_lock_path()):
+        db = StateDB.from_path(config.paths.resolve_db_path())
+        try:
+            pipeline = Pipeline(config, hooks=hooks, db=db)
+            result = pipeline.redetect_from_local(date_str)
+        finally:
+            db.close()
+
+    click.echo(f"Date:       {result.date_str}")
+    click.echo(f"Clips:      {result.clips_processed}")
+    click.echo(f"Detections: {result.detections_found}")
+    if result.composite_path:
+        click.echo(f"Composite:  {result.composite_path}")
+
+
+@cli.command()
+@click.option("-c", "--config", "config_path", type=click.Path(exists=True), default=None,
+              help="Path to config YAML file.")
+@click.option("--date", "date_str", default=None, help="Target date (YYYYMMDD).")
 @click.option("--json", "as_json", is_flag=True, help="Output as JSON.")
 def status(config_path: str | None, date_str: str | None, as_json: bool) -> None:
     """Show detection status from the database."""

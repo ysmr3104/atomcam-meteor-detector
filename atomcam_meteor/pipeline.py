@@ -233,6 +233,134 @@ class Pipeline:
             video_path=None,
         )
 
+    def redetect_from_local(self, date_str: str | None = None) -> PipelineResult:
+        """Re-run detection on already-downloaded local files (no camera access).
+
+        Scans the download directory for existing MP4 files matching the
+        observation night's time slots and runs detection on each.
+        """
+        if date_str is None:
+            date_str = self._determine_date()
+
+        logger.info("Redetect starting for date: %s (local files only)", date_str)
+
+        download_dir = self._config.paths.resolve_download_dir()
+        output_dir = self._config.paths.resolve_output_dir() / date_str
+
+        time_slots = self._build_time_slots(date_str)
+
+        clips_processed = 0
+        detections_found = 0
+        detected_images: list[Path] = []
+
+        for slot_date, hour in time_slots:
+            hour_dir = download_dir / slot_date / f"{hour:02d}"
+            if not hour_dir.is_dir():
+                continue
+
+            for mp4_file in sorted(hour_dir.glob("*.mp4")):
+                clips_processed += 1
+                minute = int(mp4_file.stem)
+                clip_url = (
+                    f"http://{self._config.camera.host}"
+                    f"/{self._config.camera.base_path}"
+                    f"/{slot_date}/{hour:02d}/{mp4_file.name}"
+                )
+
+                if self._db:
+                    self._db.clips.upsert_clip(
+                        clip_url, date_str, hour, minute,
+                        local_path=str(mp4_file),
+                        status=ClipStatus.DOWNLOADED,
+                    )
+
+                try:
+                    result = self._detector.detect(mp4_file, output_dir)
+                except AtomcamError as exc:
+                    logger.error("Detection error for %s: %s", mp4_file, exc)
+                    if self._db:
+                        self._db.clips.update_clip_status(
+                            clip_url, ClipStatus.ERROR, error_message=str(exc),
+                        )
+                    self._hooks.fire_error(ErrorEvent(
+                        stage="detection", error=str(exc),
+                        context={"clip_url": clip_url},
+                    ))
+                    continue
+
+                if result.detected:
+                    detections_found += 1
+                    if result.image_path:
+                        detected_images.append(result.image_path)
+
+                    detected_video_json = self._extract_short_clips(
+                        mp4_file, result, output_dir,
+                    )
+
+                    if self._db:
+                        self._db.clips.update_clip_status(
+                            clip_url, ClipStatus.DETECTED,
+                            detection_image=str(result.image_path) if result.image_path else None,
+                            detected_video=detected_video_json,
+                            line_count=result.line_count,
+                        )
+
+                    self._hooks.fire_detection(DetectionEvent(
+                        date_str=date_str,
+                        hour=hour,
+                        minute=minute,
+                        line_count=result.line_count,
+                        image_path=str(result.image_path) if result.image_path else "",
+                        clip_path=str(mp4_file),
+                    ))
+                else:
+                    if self._db:
+                        self._db.clips.update_clip_status(
+                            clip_url, ClipStatus.NO_DETECTION,
+                        )
+
+        composite_path: str | None = None
+        if detected_images:
+            try:
+                comp_out = output_dir / f"{date_str}_composite.jpg"
+                self._compositor.composite(detected_images, comp_out)
+                composite_path = str(comp_out)
+            except AtomcamError as exc:
+                logger.error("Compositing failed: %s", exc)
+                self._hooks.fire_error(ErrorEvent(
+                    stage="composite", error=str(exc), context={"date": date_str},
+                ))
+
+        if self._db:
+            all_detected = self._db.clips.get_detected_clips(date_str)
+            cumulative_count = len(all_detected)
+            self._db.nights.upsert_output(
+                date_str,
+                composite_image=composite_path,
+                concat_video=None,
+                detection_count=cumulative_count,
+            )
+
+        self._hooks.fire_night_complete(NightCompleteEvent(
+            date_str=date_str,
+            detection_count=detections_found,
+            composite_path=composite_path,
+            video_path=None,
+        ))
+
+        logger.info(
+            "Redetect complete: %d clips, %d detections",
+            clips_processed, detections_found,
+        )
+
+        return PipelineResult(
+            date_str=date_str,
+            clips_processed=clips_processed,
+            detections_found=detections_found,
+            composite_path=composite_path,
+            video_path=None,
+        )
+
     def rebuild_outputs(self, date_str: str) -> PipelineResult:
         """Rebuild both composite and concatenated video (backward-compat wrapper)."""
         result = self.rebuild_composite(date_str)
