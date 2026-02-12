@@ -91,6 +91,53 @@ class TestClipRepository:
         by_id = memory_db.clips.get_clip_by_id(clip["id"])
         assert by_id["clip_url"] == "http://a"
 
+    def test_upsert_preserves_terminal_detected(self, memory_db):
+        """upsert_clip must not overwrite a DETECTED status."""
+        url = "http://cam/20250101/22/00.mp4"
+        memory_db.clips.upsert_clip(url, "20250101", 22, 0, status=ClipStatus.DOWNLOADED)
+        memory_db.clips.update_clip_status(
+            url, ClipStatus.DETECTED, detection_image="/img.png", line_count=2,
+        )
+        # Re-upsert with DOWNLOADED — should NOT overwrite DETECTED
+        memory_db.clips.upsert_clip(
+            url, "20250101", 22, 0,
+            local_path="/dl/00.mp4", status=ClipStatus.DOWNLOADED,
+        )
+        clip = memory_db.clips.get_clip(url)
+        assert clip["status"] == ClipStatus.DETECTED
+        assert clip["detection_image"] == "/img.png"
+        assert clip["local_path"] == "/dl/00.mp4"
+
+    def test_upsert_preserves_terminal_no_detection(self, memory_db):
+        """upsert_clip must not overwrite a NO_DETECTION status."""
+        url = "http://cam/20250101/22/01.mp4"
+        memory_db.clips.upsert_clip(url, "20250101", 22, 1, status=ClipStatus.DOWNLOADED)
+        memory_db.clips.update_clip_status(url, ClipStatus.NO_DETECTION)
+        memory_db.clips.upsert_clip(url, "20250101", 22, 1, status=ClipStatus.DOWNLOADED)
+        clip = memory_db.clips.get_clip(url)
+        assert clip["status"] == ClipStatus.NO_DETECTION
+
+    def test_upsert_preserves_terminal_error(self, memory_db):
+        """upsert_clip must not overwrite an ERROR status."""
+        url = "http://cam/20250101/22/02.mp4"
+        memory_db.clips.upsert_clip(url, "20250101", 22, 2, status=ClipStatus.DOWNLOADED)
+        memory_db.clips.update_clip_status(url, ClipStatus.ERROR, error_message="fail")
+        memory_db.clips.upsert_clip(url, "20250101", 22, 2, status=ClipStatus.DOWNLOADED)
+        clip = memory_db.clips.get_clip(url)
+        assert clip["status"] == ClipStatus.ERROR
+
+    def test_upsert_allows_pending_to_downloaded(self, memory_db):
+        """upsert_clip should allow status update from PENDING to DOWNLOADED."""
+        url = "http://cam/20250101/22/03.mp4"
+        memory_db.clips.upsert_clip(url, "20250101", 22, 3, status=ClipStatus.PENDING)
+        memory_db.clips.upsert_clip(
+            url, "20250101", 22, 3,
+            local_path="/dl/03.mp4", status=ClipStatus.DOWNLOADED,
+        )
+        clip = memory_db.clips.get_clip(url)
+        assert clip["status"] == ClipStatus.DOWNLOADED
+        assert clip["local_path"] == "/dl/03.mp4"
+
 
 class TestNightOutputRepository:
     def test_upsert_and_get(self, memory_db):
