@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
@@ -11,6 +12,34 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from atomcam_meteor.config import AppConfig
 from atomcam_meteor.services.db import ClipRepository, StateDB
 from atomcam_meteor.web.dependencies import get_config, get_db
+
+_JST = timezone(timedelta(hours=9))
+
+
+def _utc_to_jst(utc_str: str | None) -> str:
+    """Convert a UTC datetime string to JST display string."""
+    if not utc_str:
+        return ""
+    try:
+        dt = datetime.fromisoformat(utc_str).replace(tzinfo=timezone.utc)
+        return dt.astimezone(_JST).strftime("%Y-%m-%d %H:%M")
+    except (ValueError, TypeError):
+        return utc_str
+
+
+def _clip_actual_datetime(clip: dict) -> str:
+    """Compute the actual date+time string for a clip.
+
+    Hours 22-23 belong to the previous calendar day relative to date_str.
+    """
+    date_str = clip["date_str"]
+    hour = clip["hour"]
+    target = datetime.strptime(date_str, "%Y%m%d")
+    if hour >= 22:
+        actual_date = target - timedelta(days=1)
+    else:
+        actual_date = target
+    return f"{actual_date.strftime('%Y-%m-%d')} {hour:02d}:{clip['minute']:02d}"
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +70,7 @@ def index_page(
                 night["composite_url"] = None
         else:
             night["composite_url"] = None
+        night["last_updated_jst"] = _utc_to_jst(night.get("last_updated_at"))
     templates = request.app.state.templates
     return templates.TemplateResponse(request, "index.html", {"nights": nights})
 
@@ -75,6 +105,11 @@ def night_page(
                 video_url = f"/media/output/{rel}"
             except ValueError:
                 pass
+
+    # Add actual datetime and sort chronologically
+    for clip in clips:
+        clip["actual_datetime"] = _clip_actual_datetime(clip)
+    clips.sort(key=lambda c: c["actual_datetime"])
 
     for clip in clips:
         clip["image_url"] = None

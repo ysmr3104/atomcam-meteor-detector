@@ -44,7 +44,7 @@
             </a>
             {% endif %}
             <div class="meta">
-                <strong>{{ "%02d"|format(clip.hour) }}:{{ "%02d"|format(clip.minute) }}</strong>
+                <strong>{{ clip.actual_datetime }}</strong>
                 | {{ clip.line_count }} line(s)
             </div>
             {% if clip.video_urls %}
