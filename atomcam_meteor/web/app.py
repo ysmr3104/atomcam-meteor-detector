@@ -20,6 +20,10 @@ def create_app(config: AppConfig) -> FastAPI:
     templates_dir = Path(__file__).parent / "templates"
     app.state.templates = Jinja2Templates(directory=str(templates_dir))
 
+    # Mount static assets (logo, CSS, etc.)
+    static_dir = Path(__file__).parent / "static"
+    app.mount("/static", StaticFiles(directory=str(static_dir)), name="static")
+
     # Mount media directories for serving images and videos
     download_dir = config.paths.resolve_download_dir()
     output_dir = config.paths.resolve_output_dir()
