@@ -50,6 +50,26 @@ def seeded_db(web_app, tmp_path):
     return db
 
 
+@pytest.fixture
+def seeded_db_with_detections(web_app, tmp_path):
+    """Seed DB with clips and per-line detections."""
+    config = web_app.state.config
+    db = StateDB.from_path(config.paths.resolve_db_path())
+    db.clips.upsert_clip("http://cam/20250101/22/00.mp4", "20250101", 22, 0,
+                         status=ClipStatus.DETECTED)
+    db.clips.update_clip_status("http://cam/20250101/22/00.mp4", ClipStatus.DETECTED,
+                                line_count=2, detection_image=str(tmp_path / "output" / "img.png"))
+    clip = db.clips.get_clip("http://cam/20250101/22/00.mp4")
+    db.detections.bulk_insert(
+        clip["id"],
+        [(10, 20, 100, 200), (30, 40, 300, 400)],
+        [str(tmp_path / "output" / "line0.png"), str(tmp_path / "output" / "line1.png")],
+    )
+    db.nights.upsert_output("20250101", detection_count=1)
+    db.close()
+    return db
+
+
 class TestHTMLPages:
     def test_index_page(self, client):
         resp = client.get("/")
@@ -128,3 +148,64 @@ class TestAPI:
         resp = client.get("/api/nights/20250101/concatenate/status")
         assert resp.status_code == 200
         assert "status" in resp.json()
+
+
+class TestDetectionAPI:
+    def test_toggle_detection(self, client, seeded_db_with_detections):
+        # Get clip to find detection IDs
+        clips = client.get("/api/nights/20250101/clips").json()
+        clip_id = clips[0]["id"]
+
+        # Get detections via night page (they are embedded in clips)
+        resp = client.get("/nights/20250101")
+        assert resp.status_code == 200
+
+        # Toggle detection via API - need to find a detection ID
+        # Use the DB directly through another seeded_db setup
+        from atomcam_meteor.services.db import StateDB
+        config = client.app.state.config
+        db = StateDB.from_path(config.paths.resolve_db_path())
+        detections = db.detections.get_detections_by_clip(clip_id)
+        db.close()
+        assert len(detections) == 2
+
+        det_id = detections[0]["id"]
+        resp = client.patch(f"/api/detections/{det_id}", json={"excluded": True})
+        assert resp.status_code == 200
+        assert resp.json()["excluded"] is True
+
+        # Toggle back
+        resp = client.patch(f"/api/detections/{det_id}", json={"excluded": False})
+        assert resp.status_code == 200
+        assert resp.json()["excluded"] is False
+
+    def test_toggle_detection_missing_field(self, client, seeded_db_with_detections):
+        resp = client.patch("/api/detections/1", json={"other": True})
+        assert resp.status_code == 400
+
+    def test_toggle_detection_not_found(self, client):
+        resp = client.patch("/api/detections/99999", json={"excluded": True})
+        assert resp.status_code == 404
+
+    def test_bulk_detections(self, client, seeded_db_with_detections):
+        resp = client.patch(
+            "/api/nights/20250101/detections/bulk",
+            json={"excluded": True},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["excluded"] is True
+
+        # Verify all detections are now excluded
+        config = client.app.state.config
+        db = StateDB.from_path(config.paths.resolve_db_path())
+        clips = client.get("/api/nights/20250101/clips").json()
+        detections = db.detections.get_detections_by_clip(clips[0]["id"])
+        db.close()
+        assert all(d["excluded"] == 1 for d in detections)
+
+    def test_bulk_detections_missing_field(self, client):
+        resp = client.patch(
+            "/api/nights/20250101/detections/bulk",
+            json={"other": True},
+        )
+        assert resp.status_code == 400

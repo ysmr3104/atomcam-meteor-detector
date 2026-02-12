@@ -6,6 +6,7 @@ import pytest
 
 from atomcam_meteor.services.db import (
     ClipStatus,
+    DetectionRepository,
     StateDB,
     ClipRepository,
     NightOutputRepository,
@@ -139,6 +140,91 @@ class TestClipRepository:
         assert clip["local_path"] == "/dl/03.mp4"
 
 
+class TestDetectionRepository:
+    def _make_clip(self, memory_db, url="http://a", date_str="20250101"):
+        memory_db.clips.upsert_clip(url, date_str, 22, 0, status=ClipStatus.DETECTED)
+        return memory_db.clips.get_clip(url)["id"]
+
+    def test_bulk_insert_and_get(self, memory_db):
+        clip_id = self._make_clip(memory_db)
+        lines = [(10, 20, 100, 200), (30, 40, 300, 400)]
+        crops = ["/crop0.png", "/crop1.png"]
+        memory_db.detections.bulk_insert(clip_id, lines, crops)
+
+        detections = memory_db.detections.get_detections_by_clip(clip_id)
+        assert len(detections) == 2
+        assert detections[0]["x1"] == 10
+        assert detections[0]["crop_image"] == "/crop0.png"
+        assert detections[1]["line_index"] == 1
+
+    def test_toggle_excluded(self, memory_db):
+        clip_id = self._make_clip(memory_db)
+        memory_db.detections.bulk_insert(
+            clip_id, [(10, 20, 100, 200)], ["/crop.png"],
+        )
+        det = memory_db.detections.get_detections_by_clip(clip_id)[0]
+        assert det["excluded"] == 0
+
+        memory_db.detections.toggle_excluded(det["id"], True)
+        det = memory_db.detections.get_detection_by_id(det["id"])
+        assert det["excluded"] == 1
+
+        memory_db.detections.toggle_excluded(det["id"], False)
+        det = memory_db.detections.get_detection_by_id(det["id"])
+        assert det["excluded"] == 0
+
+    def test_set_all_excluded_by_clip(self, memory_db):
+        clip_id = self._make_clip(memory_db)
+        memory_db.detections.bulk_insert(
+            clip_id,
+            [(10, 20, 100, 200), (30, 40, 300, 400)],
+            ["/c0.png", "/c1.png"],
+        )
+        memory_db.detections.set_all_excluded(clip_id, True)
+        excluded = memory_db.detections.get_excluded_detections_by_clip(clip_id)
+        assert len(excluded) == 2
+
+        memory_db.detections.set_all_excluded(clip_id, False)
+        included = memory_db.detections.get_included_detections_by_clip(clip_id)
+        assert len(included) == 2
+
+    def test_set_all_excluded_by_date(self, memory_db):
+        c1 = self._make_clip(memory_db, "http://a")
+        c2 = self._make_clip(memory_db, "http://b")
+        memory_db.detections.bulk_insert(c1, [(0, 0, 10, 10)], ["/a.png"])
+        memory_db.detections.bulk_insert(c2, [(0, 0, 20, 20)], ["/b.png"])
+
+        memory_db.detections.set_all_excluded_by_date("20250101", True)
+        assert len(memory_db.detections.get_excluded_detections_by_clip(c1)) == 1
+        assert len(memory_db.detections.get_excluded_detections_by_clip(c2)) == 1
+
+    def test_delete_by_clip(self, memory_db):
+        clip_id = self._make_clip(memory_db)
+        memory_db.detections.bulk_insert(
+            clip_id, [(10, 20, 100, 200)], ["/crop.png"],
+        )
+        assert len(memory_db.detections.get_detections_by_clip(clip_id)) == 1
+        memory_db.detections.delete_by_clip(clip_id)
+        assert len(memory_db.detections.get_detections_by_clip(clip_id)) == 0
+
+    def test_upsert_detection(self, memory_db):
+        clip_id = self._make_clip(memory_db)
+        memory_db.detections.upsert_detection(clip_id, 0, 10, 20, 100, 200, "/c.png")
+        det = memory_db.detections.get_detections_by_clip(clip_id)
+        assert len(det) == 1
+        assert det[0]["crop_image"] == "/c.png"
+
+        # Upsert same line_index should update
+        memory_db.detections.upsert_detection(clip_id, 0, 50, 60, 500, 600, "/new.png")
+        det = memory_db.detections.get_detections_by_clip(clip_id)
+        assert len(det) == 1
+        assert det[0]["x1"] == 50
+        assert det[0]["crop_image"] == "/new.png"
+
+    def test_get_nonexistent(self, memory_db):
+        assert memory_db.detections.get_detection_by_id(99999) is None
+
+
 class TestNightOutputRepository:
     def test_upsert_and_get(self, memory_db):
         memory_db.nights.upsert_output("20250101", composite_image="/comp.jpg", detection_count=5)
@@ -160,6 +246,7 @@ class TestNightOutputRepository:
 class TestStateDB:
     def test_facade(self, memory_db):
         assert isinstance(memory_db.clips, ClipRepository)
+        assert isinstance(memory_db.detections, DetectionRepository)
         assert isinstance(memory_db.nights, NightOutputRepository)
 
     def test_from_path(self, tmp_path):

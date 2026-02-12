@@ -43,24 +43,28 @@
     <div class="clip-grid">
         {% for clip in clips %}
         {% if clip.status == 'detected' %}
-        {% if clip.line_image_urls %}
-        {% for lurl in clip.line_image_urls %}
-        <div class="clip-card{% if clip.excluded %} excluded{% endif %}" data-clip-id="{{ clip.id }}">
-            <a href="{{ lurl }}" target="_blank">
-                <img src="{{ lurl }}" alt="Line {{ loop.index }}" loading="lazy">
+        {% if clip.detections %}
+        {% for det in clip.detections %}
+        {% if det.crop_url %}
+        <div class="clip-card{% if det.excluded %} excluded{% endif %}" data-detection-id="{{ det.id }}">
+            <a href="{{ det.crop_url }}" target="_blank">
+                <img src="{{ det.crop_url }}" alt="Line {{ det.line_index + 1 }}" loading="lazy">
             </a>
             <div class="meta">
                 <strong>{{ clip.actual_datetime }}:00</strong>
-                | line {{ loop.index }}/{{ clip.line_image_urls|length }}
+                | line {{ det.line_index + 1 }}/{{ clip.detections|length }}
             </div>
-            <button class="toggle-btn {% if clip.excluded %}contrast{% else %}outline{% endif %}"
-                    onclick="toggleExcluded({{ clip.id }}, {{ 'false' if clip.excluded else 'true' }})">
-                {{ "Excluded" if clip.excluded else "Included" }}
+            {% if det.id %}
+            <button class="toggle-btn {% if det.excluded %}contrast{% else %}outline{% endif %}"
+                    onclick="toggleDetection({{ det.id }}, {{ 'false' if det.excluded else 'true' }})">
+                {{ "Excluded" if det.excluded else "Included" }}
             </button>
+            {% endif %}
         </div>
+        {% endif %}
         {% endfor %}
         {% elif clip.image_url %}
-        <div class="clip-card{% if clip.excluded %} excluded{% endif %}" data-clip-id="{{ clip.id }}">
+        <div class="clip-card" data-clip-id="{{ clip.id }}">
             <a href="{{ clip.image_url }}" target="_blank">
                 <img src="{{ clip.image_url }}" alt="Detection {{ clip.actual_datetime }}" loading="lazy">
             </a>
@@ -68,10 +72,6 @@
                 <strong>{{ clip.actual_datetime }}:00</strong>
                 | {{ clip.line_count }} line(s)
             </div>
-            <button class="toggle-btn {% if clip.excluded %}contrast{% else %}outline{% endif %}"
-                    onclick="toggleExcluded({{ clip.id }}, {{ 'false' if clip.excluded else 'true' }})">
-                {{ "Excluded" if clip.excluded else "Included" }}
-            </button>
         </div>
         {% endif %}
         {% endif %}
@@ -83,29 +83,48 @@
 {% block scripts %}
 <script>
 async function setAllExcluded(excluded) {
-    const cards = document.querySelectorAll('.clip-card[data-clip-id]');
-    const ids = Array.from(cards).map(c => c.dataset.clipId);
-    for (const id of ids) {
-        try {
-            await fetch(`/api/clips/${id}`, {
-                method: 'PATCH',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({excluded: excluded}),
-            });
-        } catch (e) { /* continue */ }
-    }
-    location.reload();
-}
-
-async function toggleExcluded(clipId, excluded) {
     try {
-        const resp = await fetch(`/api/clips/${clipId}`, {
+        const resp = await fetch(`/api/nights/{{ date_str }}/detections/bulk`, {
             method: 'PATCH',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({excluded: excluded}),
         });
         if (resp.ok) {
             location.reload();
+        } else {
+            alert('Bulk update failed');
+        }
+    } catch (e) {
+        alert('Request failed: ' + e.message);
+    }
+}
+
+async function toggleDetection(detectionId, excluded) {
+    try {
+        const resp = await fetch(`/api/detections/${detectionId}`, {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({excluded: excluded}),
+        });
+        if (resp.ok) {
+            // Update UI without full reload for faster toggling
+            const card = document.querySelector(`[data-detection-id="${detectionId}"]`);
+            if (card) {
+                const btn = card.querySelector('.toggle-btn');
+                if (excluded) {
+                    card.classList.add('excluded');
+                    btn.classList.remove('outline');
+                    btn.classList.add('contrast');
+                    btn.textContent = 'Excluded';
+                    btn.setAttribute('onclick', `toggleDetection(${detectionId}, false)`);
+                } else {
+                    card.classList.remove('excluded');
+                    btn.classList.remove('contrast');
+                    btn.classList.add('outline');
+                    btn.textContent = 'Included';
+                    btn.setAttribute('onclick', `toggleDetection(${detectionId}, true)`);
+                }
+            }
         } else {
             const err = await resp.json();
             alert('Error: ' + (err.detail || 'Unknown error'));

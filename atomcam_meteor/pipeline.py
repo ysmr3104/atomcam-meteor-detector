@@ -152,6 +152,7 @@ class Pipeline:
                                 detected_video=detected_video_json,
                                 line_count=result.line_count,
                             )
+                            self._save_detections(clip_url, result)
 
                         self._hooks.fire_detection(DetectionEvent(
                             date_str=date_str,
@@ -304,6 +305,7 @@ class Pipeline:
                             detected_video=detected_video_json,
                             line_count=result.line_count,
                         )
+                        self._save_detections(clip_url, result)
 
                     self._hooks.fire_detection(DetectionEvent(
                         date_str=date_str,
@@ -374,23 +376,68 @@ class Pipeline:
         )
 
     def rebuild_composite(self, date_str: str) -> PipelineResult:
-        """Rebuild composite image from non-excluded detected clips."""
+        """Rebuild composite image with per-line exclusion support.
+
+        For each detected clip, excluded lines are masked out (blacked out)
+        from the detection image before compositing.  Clips where all lines
+        are excluded are skipped entirely.
+        """
         if self._db is None:
             raise AtomcamError("Database required for rebuild_composite")
 
-        output_dir = self._config.paths.resolve_output_dir() / date_str
-        clips = self._db.clips.get_included_detected_clips(date_str)
+        import cv2
 
-        detected_images = [
-            Path(c["detection_image"]) for c in clips if c.get("detection_image")
-        ]
+        output_dir = self._config.paths.resolve_output_dir() / date_str
+        clips = self._db.clips.get_detected_clips(date_str)
+
+        masked_images: list[Path] = []
+        included_clip_count = 0
+
+        for clip in clips:
+            if not clip.get("detection_image"):
+                continue
+
+            detection_image_path = Path(clip["detection_image"])
+            detections = self._db.detections.get_detections_by_clip(clip["id"])
+
+            if not detections:
+                # No per-line data: fall back to clip-level exclusion
+                if not clip.get("excluded"):
+                    masked_images.append(detection_image_path)
+                    included_clip_count += 1
+                continue
+
+            included = [d for d in detections if not d["excluded"]]
+            if not included:
+                # All lines excluded — skip this clip
+                continue
+
+            excluded = [d for d in detections if d["excluded"]]
+            included_clip_count += 1
+
+            if not excluded:
+                # No lines excluded — use original image
+                masked_images.append(detection_image_path)
+            else:
+                # Mask out excluded line regions
+                image = cv2.imread(str(detection_image_path))
+                if image is None:
+                    logger.warning("Failed to load image: %s", detection_image_path)
+                    continue
+                excluded_lines = [
+                    (d["x1"], d["y1"], d["x2"], d["y2"]) for d in excluded
+                ]
+                masked = self._compositor.mask_lines(image, excluded_lines)
+                masked_path = detection_image_path.with_suffix(".masked.png")
+                cv2.imwrite(str(masked_path), masked)
+                masked_images.append(masked_path)
 
         composite_path: str | None = None
 
-        if detected_images:
+        if masked_images:
             try:
                 comp_out = output_dir / f"{date_str}_composite.jpg"
-                self._compositor.composite(detected_images, comp_out)
+                self._compositor.composite(masked_images, comp_out)
                 composite_path = str(comp_out)
             except AtomcamError as exc:
                 logger.error("Rebuild compositing failed: %s", exc)
@@ -403,13 +450,13 @@ class Pipeline:
             date_str,
             composite_image=composite_path,
             concat_video=existing_video,
-            detection_count=len(clips),
+            detection_count=included_clip_count,
         )
 
         return PipelineResult(
             date_str=date_str,
             clips_processed=0,
-            detections_found=len(clips),
+            detections_found=included_clip_count,
             composite_path=composite_path,
             video_path=existing_video,
         )
@@ -457,6 +504,26 @@ class Pipeline:
             composite_path=existing_composite,
             video_path=video_path,
         )
+
+    def _save_detections(self, clip_url: str, result: object) -> None:
+        """Save per-line detection records to the DB."""
+        from atomcam_meteor.modules.detector import DetectionResult
+
+        assert isinstance(result, DetectionResult)
+        if self._db is None or not result.lines:
+            return
+
+        clip = self._db.clips.get_clip(clip_url)
+        if clip is None:
+            return
+
+        clip_id = clip["id"]
+        crop_paths = [str(p) for p in result.crop_paths]
+        # Pad crop_paths if fewer than lines (shouldn't happen, but be safe)
+        while len(crop_paths) < len(result.lines):
+            crop_paths.append("")
+
+        self._db.detections.bulk_insert(clip_id, result.lines, crop_paths)
 
     def _extract_short_clips(
         self, local_path: Path, result: object, output_dir: Path

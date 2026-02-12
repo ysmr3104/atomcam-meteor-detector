@@ -126,9 +126,12 @@ class TestPipeline:
 
     def test_rebuild_composite(self, mock_deps, tmp_path):
         config, dl, det, comp, concat, ext, db = mock_deps
-        db.clips.get_included_detected_clips.return_value = [
-            {"detection_image": str(tmp_path / "img1.png"), "detected_video": '["v1.mp4"]'},
+        db.clips.get_detected_clips.return_value = [
+            {"id": 1, "detection_image": str(tmp_path / "img1.png"),
+             "detected_video": '["v1.mp4"]', "excluded": 0},
         ]
+        # No per-line detections -> falls back to clip-level exclusion
+        db.detections.get_detections_by_clip.return_value = []
         db.nights.get_output.return_value = {"concat_video": "/old/video.mp4"}
         comp.composite.return_value = tmp_path / "comp.jpg"
 
@@ -164,8 +167,13 @@ class TestPipeline:
 
     def test_rebuild_outputs_calls_both(self, mock_deps, tmp_path):
         config, dl, det, comp, concat, ext, db = mock_deps
+        db.clips.get_detected_clips.return_value = [
+            {"id": 1, "detection_image": str(tmp_path / "img1.png"),
+             "detected_video": '["v1.mp4"]', "excluded": 0},
+        ]
+        db.detections.get_detections_by_clip.return_value = []
         db.clips.get_included_detected_clips.return_value = [
-            {"detection_image": str(tmp_path / "img1.png"), "detected_video": '["v1.mp4"]'},
+            {"detected_video": '["v1.mp4"]'},
         ]
         db.clips.get_detected_video_paths.return_value = ["v1.mp4"]
         db.nights.get_output.return_value = {

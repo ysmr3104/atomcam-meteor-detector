@@ -38,9 +38,10 @@ def memory_db():
     conn = sqlite3.connect(":memory:")
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
-    from atomcam_meteor.services.db import _CLIPS_TABLE, _NIGHT_OUTPUTS_TABLE
+    from atomcam_meteor.services.db import _CLIPS_TABLE, _NIGHT_OUTPUTS_TABLE, _DETECTIONS_TABLE
     conn.execute(_CLIPS_TABLE)
     conn.execute(_NIGHT_OUTPUTS_TABLE)
+    conn.execute(_DETECTIONS_TABLE)
     conn.commit()
     db = StateDB(conn)
     yield db

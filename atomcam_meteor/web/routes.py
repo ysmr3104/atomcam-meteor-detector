@@ -113,7 +113,7 @@ def night_page(
 
     for clip in clips:
         clip["image_url"] = None
-        clip["line_image_urls"] = []
+        clip["detections"] = []
         clip["video_urls"] = []
         if clip.get("detection_image"):
             try:
@@ -121,16 +121,36 @@ def night_page(
                 clip["image_url"] = f"/media/output/{rel}"
             except ValueError:
                 pass
-            # Discover per-line crop images
-            detect_path = Path(clip["detection_image"])
-            stem = detect_path.stem.replace("_detect", "")
-            parent = detect_path.parent
-            for lp in sorted(parent.glob(f"{stem}_line*.png")):
-                try:
-                    rel = lp.relative_to(output_dir)
-                    clip["line_image_urls"].append(f"/media/output/{rel}")
-                except ValueError:
-                    pass
+
+            # Load per-line detections from DB
+            db_detections = db.detections.get_detections_by_clip(clip["id"])
+            if db_detections:
+                for det in db_detections:
+                    det["crop_url"] = None
+                    if det.get("crop_image"):
+                        try:
+                            rel = Path(det["crop_image"]).relative_to(output_dir)
+                            det["crop_url"] = f"/media/output/{rel}"
+                        except ValueError:
+                            pass
+                clip["detections"] = db_detections
+            else:
+                # Fallback: discover per-line crop images from filesystem
+                detect_path = Path(clip["detection_image"])
+                stem = detect_path.stem.replace("_detect", "")
+                parent = detect_path.parent
+                for lp in sorted(parent.glob(f"{stem}_line*.png")):
+                    try:
+                        rel = lp.relative_to(output_dir)
+                        clip["detections"].append({
+                            "id": None,
+                            "crop_url": f"/media/output/{rel}",
+                            "excluded": 0,
+                            "line_index": len(clip["detections"]),
+                        })
+                    except ValueError:
+                        pass
+
         video_paths = ClipRepository.get_detected_video_paths(clip)
         for vp in video_paths:
             vpath = Path(vp)
@@ -195,6 +215,37 @@ def api_toggle_clip(
         raise HTTPException(status_code=404, detail="Clip not found")
     db.clips.toggle_excluded(clip_id, excluded)
     return {"id": clip_id, "excluded": excluded}
+
+
+@router.patch("/api/detections/{detection_id}")
+def api_toggle_detection(
+    detection_id: int,
+    body: dict,
+    db: StateDB = Depends(get_db),
+) -> dict:
+    """Toggle the excluded status of a single detection (line)."""
+    if "excluded" not in body:
+        raise HTTPException(status_code=400, detail="'excluded' field required")
+    excluded = bool(body["excluded"])
+    detection = db.detections.get_detection_by_id(detection_id)
+    if detection is None:
+        raise HTTPException(status_code=404, detail="Detection not found")
+    db.detections.toggle_excluded(detection_id, excluded)
+    return {"id": detection_id, "excluded": excluded}
+
+
+@router.patch("/api/nights/{date_str}/detections/bulk")
+def api_bulk_detections(
+    date_str: str,
+    body: dict,
+    db: StateDB = Depends(get_db),
+) -> dict:
+    """Set excluded flag for all detections in a night."""
+    if "excluded" not in body:
+        raise HTTPException(status_code=400, detail="'excluded' field required")
+    excluded = bool(body["excluded"])
+    db.detections.set_all_excluded_by_date(date_str, excluded)
+    return {"date_str": date_str, "excluded": excluded}
 
 
 @router.post("/api/nights/{date_str}/rebuild")

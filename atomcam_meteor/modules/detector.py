@@ -24,6 +24,7 @@ class DetectionResult:
     lines: list[tuple[int, int, int, int]]
     detection_groups: list[int] = dataclasses.field(default_factory=list)
     fps: float = 0.0
+    crop_paths: list[Path] = dataclasses.field(default_factory=list)
 
 
 class MeteorDetector:
@@ -262,7 +263,7 @@ class MeteorDetector:
         cv2.imwrite(str(image_path), color_composite)
 
         # Save per-line crop images
-        self._save_line_crops(color_composite, lines, output_dir, clip_path.stem)
+        crop_paths = self._save_line_crops(color_composite, lines, output_dir, clip_path.stem)
 
         return DetectionResult(
             detected=True,
@@ -271,6 +272,7 @@ class MeteorDetector:
             lines=lines,
             detection_groups=detection_groups,
             fps=fps,
+            crop_paths=crop_paths,
         )
 
     @staticmethod
@@ -281,9 +283,13 @@ class MeteorDetector:
         stem: str,
         padding: int = 80,
         min_size: int = 120,
-    ) -> None:
-        """Save cropped images around each detected line."""
+    ) -> list[Path]:
+        """Save cropped images around each detected line.
+
+        Returns the list of saved crop image paths.
+        """
         h, w = composite.shape[:2]
+        paths: list[Path] = []
         for i, (x1, y1, x2, y2) in enumerate(lines):
             cy1 = max(0, min(y1, y2) - padding)
             cy2 = min(h, max(y1, y2) + padding)
@@ -301,3 +307,5 @@ class MeteorDetector:
             crop = composite[cy1:cy2, cx1:cx2]
             line_path = output_dir / f"{stem}_line{i}.png"
             cv2.imwrite(str(line_path), crop)
+            paths.append(line_path)
+        return paths
