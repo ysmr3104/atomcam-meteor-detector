@@ -297,5 +297,28 @@ async function pollConcatenate() {
         }
     }, 2000);
 }
+
+// ページ読み込み時に実行中のredetectを自動検知
+async function checkRedetectOnLoad() {
+    try {
+        const resp = await fetch(`/api/nights/{{ date_str }}/redetect/status`);
+        const data = await resp.json();
+        if (data.status === 'running') {
+            const btn = document.getElementById('redetect-btn');
+            const cancelBtn = document.getElementById('redetect-cancel-btn');
+            btn.disabled = true;
+            if (data.total > 0) {
+                btn.textContent = `Re-detecting... ${data.processed}/${data.total}`;
+            } else {
+                btn.textContent = 'Re-detecting...';
+            }
+            cancelBtn.style.display = '';
+            pollRedetect();
+        }
+    } catch (e) {
+        // 無視
+    }
+}
+document.addEventListener('DOMContentLoaded', checkRedetectOnLoad);
 </script>
 {% endblock %}
