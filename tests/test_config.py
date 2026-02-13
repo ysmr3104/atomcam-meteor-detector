@@ -42,6 +42,44 @@ class TestDetectionConfig:
             config.min_line_length = 50
 
 
+class TestScheduleConfig:
+    def test_defaults(self):
+        config = ScheduleConfig()
+        assert config.start_time == "22:00"
+        assert config.end_time == "06:00"
+
+    def test_custom_values(self):
+        config = ScheduleConfig(start_time="20:30", end_time="05:15")
+        assert config.start_time == "20:30"
+        assert config.end_time == "05:15"
+
+    def test_frozen(self):
+        config = ScheduleConfig()
+        with pytest.raises(ValidationError):
+            config.start_time = "23:00"
+
+    def test_invalid_format_no_colon(self):
+        with pytest.raises(ValidationError, match="HH:MM"):
+            ScheduleConfig(start_time="2200")
+
+    def test_invalid_format_letters(self):
+        with pytest.raises(ValidationError, match="HH:MM"):
+            ScheduleConfig(start_time="abc")
+
+    def test_invalid_hour(self):
+        with pytest.raises(ValidationError, match="無効な時刻"):
+            ScheduleConfig(start_time="25:00")
+
+    def test_invalid_minute(self):
+        with pytest.raises(ValidationError, match="無効な時刻"):
+            ScheduleConfig(end_time="22:60")
+
+    def test_boundary_values(self):
+        config = ScheduleConfig(start_time="00:00", end_time="23:59")
+        assert config.start_time == "00:00"
+        assert config.end_time == "23:59"
+
+
 class TestPathsConfig:
     def test_resolve_download_dir(self):
         config = PathsConfig(download_dir="~/test/downloads")

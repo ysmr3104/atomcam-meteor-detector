@@ -10,13 +10,15 @@ detection:
   min_line_length: 30
   canny_threshold1: 100
   canny_threshold2: 200
+  hough_threshold: 25
+  max_line_gap: 5
   exposure_duration_sec: 1.0
   clip_margin_sec: 0.5
   mask_path: null
 
 schedule:
-  prev_date_hours: [22, 23]
-  curr_date_hours: [0, 1, 2, 3, 4, 5]
+  start_time: "22:00"
+  end_time: "06:00"
 
 paths:
   download_dir: "~/atomcam/downloads"

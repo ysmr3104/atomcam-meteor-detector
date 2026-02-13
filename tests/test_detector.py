@@ -69,71 +69,85 @@ class TestMeteorDetector:
         # The bright line color should be preserved in the composite
         assert saved[:, :, 2].max() > 100  # red channel from (0, 200, 255) BGR
 
-    def test_fallback_group_detection_by_line_scoring(self, tmp_path):
-        """When per-group _has_lines fails but final composite detects,
-        fallback scoring should populate detection_groups."""
-        video_path = tmp_path / "faint_meteor.mp4"
+    def test_per_group_detection_determines_result(self, tmp_path):
+        """グループ単位でHough線が検出された場合のみ detected=True になる。"""
+        video_path = tmp_path / "meteor.mp4"
         h, w = 480, 640
         fourcc = cv2.VideoWriter_fourcc(*"mp4v")
         writer = cv2.VideoWriter(str(video_path), fourcc, 15, (w, h))
 
-        # 60 frames = 4 groups of 15 frames at exposure_duration_sec=1.0
-        # Group 0 (frames 0-14): dark frames - no meteor
+        # Group 0 (frames 0-14): 暗いフレーム
         for _ in range(15):
             writer.write(np.zeros((h, w, 3), dtype=np.uint8))
 
-        # Group 1 (frames 15-29): faint diagonal line on 2 frames only
-        # Too faint for per-group Hough but visible in final composite
+        # Group 1 (frames 15-29): 明るい直線（流星模擬）
         for i in range(15):
             frame = np.zeros((h, w, 3), dtype=np.uint8)
-            if i in (7, 8):
-                # Faint line - lower brightness to avoid per-group detection
-                cv2.line(frame, (100, 100), (500, 400), (60, 60, 60), 1)
+            if i % 2 == 1:
+                cv2.line(frame, (100, 100), (500, 400), (0, 200, 255), 2)
             writer.write(frame)
 
-        # Group 2 (frames 30-44): dark frames
-        for _ in range(15):
-            writer.write(np.zeros((h, w, 3), dtype=np.uint8))
-
-        # Group 3 (frames 45-59): dark frames
+        # Group 2 (frames 30-44): 暗いフレーム
         for _ in range(15):
             writer.write(np.zeros((h, w, 3), dtype=np.uint8))
         writer.release()
 
-        # Use low min_line_length so final composite can detect the line
-        cfg = DetectionConfig(min_line_length=20, canny_threshold1=30, canny_threshold2=80)
+        cfg = DetectionConfig(min_line_length=30)
         det = MeteorDetector(cfg)
         result = det.detect(video_path, tmp_path / "output")
 
-        # If detected, groups should be populated (not empty)
-        if result.detected:
-            assert len(result.detection_groups) > 0, (
-                "detection_groups should not be empty when detection succeeds"
-            )
-            # Group 1 should be in the list (it has the faint line)
-            assert 1 in result.detection_groups
+        assert result.detected is True
+        assert 1 in result.detection_groups
+        # グループ0,2は暗いフレームのみなので含まれない
+        assert 0 not in result.detection_groups
+        assert 2 not in result.detection_groups
 
-    def test_score_groups_by_lines_basic(self):
-        """_score_groups_by_lines identifies the group with brightness along lines."""
+    def test_no_false_positive_from_noise(self, tmp_path):
+        """微弱なノイズが全グループに分散しても誤検出しない。"""
+        video_path = tmp_path / "noise.mp4"
+        h, w = 480, 640
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(str(video_path), fourcc, 15, (w, h))
+
+        rng = np.random.RandomState(42)
+        for _ in range(60):
+            # 各フレームにランダムノイズを加えた暗いフレーム
+            frame = rng.randint(0, 15, (h, w, 3), dtype=np.uint8)
+            writer.write(frame)
+        writer.release()
+
         cfg = DetectionConfig()
         det = MeteorDetector(cfg)
+        result = det.detect(video_path, tmp_path / "output")
 
-        h, w = 100, 200
-        # Group 0: mostly dark
-        dark = np.zeros((h, w), dtype=np.uint8)
-        # Group 1: bright along a diagonal
-        bright = np.zeros((h, w), dtype=np.uint8)
-        cv2.line(bright, (10, 10), (190, 90), 200, 2)
-        # Group 2: mostly dark
-        dark2 = np.zeros((h, w), dtype=np.uint8)
+        assert result.detected is False
 
-        diff_composites = [dark, bright, dark2]
-        lines = [(10, 10, 190, 90)]
-        result = det._score_groups_by_lines(diff_composites, lines, (h, w))
+    def test_hough_parameters_from_config(self, tmp_path):
+        """設定値の hough_threshold と max_line_gap が使用されることを確認。"""
+        video_path = tmp_path / "line.mp4"
+        h, w = 480, 640
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(str(video_path), fourcc, 15, (w, h))
 
-        assert 1 in result
-        assert 0 not in result
-        assert 2 not in result
+        # 明るい直線を描画（検出可能な強度）
+        for i in range(30):
+            frame = np.zeros((h, w, 3), dtype=np.uint8)
+            if i % 2 == 1:
+                cv2.line(frame, (100, 100), (500, 400), (0, 200, 255), 2)
+            writer.write(frame)
+        writer.release()
+
+        # threshold=25 (デフォルト) では検出される
+        cfg_low = DetectionConfig(hough_threshold=25, max_line_gap=5)
+        det_low = MeteorDetector(cfg_low)
+        result_low = det_low.detect(video_path, tmp_path / "out_low")
+        assert result_low.detected is True
+
+        # threshold=999 では閾値が高すぎて検出されない
+        cfg_high = DetectionConfig(hough_threshold=999, max_line_gap=1)
+        det_high = MeteorDetector(cfg_high)
+        result_high = det_high.detect(video_path, tmp_path / "out_high")
+        assert result_high.detected is False
 
     def test_detection_result_fields(self):
         r = DetectionResult(

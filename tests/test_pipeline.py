@@ -48,7 +48,7 @@ class TestPipeline:
                           compositor=MagicMock(), concatenator=MagicMock(),
                           extractor=MagicMock())
         slots = pipeline._build_time_slots("20250101")
-        # prev day hours (22, 23) + curr day hours (0-5) = 8 slots
+        # 22:00-06:00 → hours 22,23 (prev day) + 0,1,2,3,4,5 (curr day) = 8 slots
         assert len(slots) == 8
         assert slots[0] == ("20241231", 22)
         assert slots[-1] == ("20250101", 5)
@@ -457,3 +457,142 @@ class TestRedetectFromLocal:
         assert result.detections_found == 0
         dl.download_hour.assert_not_called()
         det.detect.assert_not_called()
+
+
+class TestTimeSlots:
+    """start_time / end_time によるスロット生成テスト"""
+
+    def test_time_slots_same_day(self, tmp_path):
+        """同日内レンジ（01:00→05:00）のスロット生成"""
+        config = AppConfig.model_validate({
+            "schedule": {"start_time": "01:00", "end_time": "05:00"},
+            "paths": {
+                "download_dir": str(tmp_path / "dl"),
+                "output_dir": str(tmp_path / "out"),
+                "db_path": str(tmp_path / "test.db"),
+                "lock_path": str(tmp_path / "test.lock"),
+            },
+        })
+        pipeline = Pipeline(config, downloader=MagicMock(), detector=MagicMock(),
+                          compositor=MagicMock(), concatenator=MagicMock(),
+                          extractor=MagicMock())
+        slots = pipeline._build_time_slots("20250101")
+        # 01:00-05:00 → hours 1,2,3,4 = 4 slots (all same day)
+        assert len(slots) == 4
+        assert slots[0] == ("20250101", 1)
+        assert slots[-1] == ("20250101", 4)
+
+    def test_time_slots_partial_hour(self, tmp_path):
+        """分指定ありのスロット生成（22:30→05:15）"""
+        config = AppConfig.model_validate({
+            "schedule": {"start_time": "22:30", "end_time": "05:15"},
+            "paths": {
+                "download_dir": str(tmp_path / "dl"),
+                "output_dir": str(tmp_path / "out"),
+                "db_path": str(tmp_path / "test.db"),
+                "lock_path": str(tmp_path / "test.lock"),
+            },
+        })
+        pipeline = Pipeline(config, downloader=MagicMock(), detector=MagicMock(),
+                          compositor=MagicMock(), concatenator=MagicMock(),
+                          extractor=MagicMock())
+        slots = pipeline._build_time_slots("20250101")
+        # 22:30→05:15 → hours 22,23 (prev day) + 0,1,2,3,4,5 (curr day) = 8 slots
+        # end_m=15 > 0 なので hour 5 も含む
+        assert len(slots) == 8
+        assert slots[0] == ("20241231", 22)
+        assert slots[-1] == ("20250101", 5)
+
+
+class TestClipInRange:
+    """_clip_in_range の分レベルフィルタリングテスト"""
+
+    def _make_pipeline(self, tmp_path, start_time, end_time):
+        config = AppConfig.model_validate({
+            "schedule": {"start_time": start_time, "end_time": end_time},
+            "paths": {
+                "download_dir": str(tmp_path / "dl"),
+                "output_dir": str(tmp_path / "out"),
+                "db_path": str(tmp_path / "test.db"),
+                "lock_path": str(tmp_path / "test.lock"),
+            },
+        })
+        return Pipeline(config, downloader=MagicMock(), detector=MagicMock(),
+                       compositor=MagicMock(), concatenator=MagicMock(),
+                       extractor=MagicMock())
+
+    def test_midnight_crossing_inside(self, tmp_path):
+        """日付またぎ: 範囲内のクリップ"""
+        pipeline = self._make_pipeline(tmp_path, "22:00", "06:00")
+        assert pipeline._clip_in_range(22, 0) is True
+        assert pipeline._clip_in_range(23, 30) is True
+        assert pipeline._clip_in_range(0, 0) is True
+        assert pipeline._clip_in_range(3, 15) is True
+        assert pipeline._clip_in_range(5, 59) is True
+
+    def test_midnight_crossing_outside(self, tmp_path):
+        """日付またぎ: 範囲外のクリップ"""
+        pipeline = self._make_pipeline(tmp_path, "22:00", "06:00")
+        assert pipeline._clip_in_range(6, 0) is False
+        assert pipeline._clip_in_range(12, 0) is False
+        assert pipeline._clip_in_range(21, 59) is False
+
+    def test_midnight_crossing_partial_start(self, tmp_path):
+        """日付またぎ + 分指定: 開始境界のフィルタリング"""
+        pipeline = self._make_pipeline(tmp_path, "22:30", "05:15")
+        assert pipeline._clip_in_range(22, 29) is False
+        assert pipeline._clip_in_range(22, 30) is True
+        assert pipeline._clip_in_range(22, 59) is True
+
+    def test_midnight_crossing_partial_end(self, tmp_path):
+        """日付またぎ + 分指定: 終了境界のフィルタリング"""
+        pipeline = self._make_pipeline(tmp_path, "22:30", "05:15")
+        assert pipeline._clip_in_range(5, 14) is True
+        assert pipeline._clip_in_range(5, 15) is False
+        assert pipeline._clip_in_range(5, 59) is False
+
+    def test_same_day_inside(self, tmp_path):
+        """同日内: 範囲内のクリップ"""
+        pipeline = self._make_pipeline(tmp_path, "01:00", "05:00")
+        assert pipeline._clip_in_range(1, 0) is True
+        assert pipeline._clip_in_range(3, 30) is True
+        assert pipeline._clip_in_range(4, 59) is True
+
+    def test_same_day_outside(self, tmp_path):
+        """同日内: 範囲外のクリップ"""
+        pipeline = self._make_pipeline(tmp_path, "01:00", "05:00")
+        assert pipeline._clip_in_range(0, 59) is False
+        assert pipeline._clip_in_range(5, 0) is False
+        assert pipeline._clip_in_range(22, 0) is False
+
+    def test_clip_outside_range_skipped_in_redetect(self, tmp_path, memory_db):
+        """範囲外クリップが redetect_from_local でスキップされることの統合テスト"""
+        config = AppConfig.model_validate({
+            "schedule": {"start_time": "22:30", "end_time": "05:15"},
+            "paths": {
+                "download_dir": str(tmp_path / "dl"),
+                "output_dir": str(tmp_path / "out"),
+                "db_path": str(tmp_path / "test.db"),
+                "lock_path": str(tmp_path / "test.lock"),
+            },
+        })
+        det = MagicMock()
+        det.detect.return_value = DetectionResult(
+            detected=False, line_count=0, image_path=None, lines=[],
+        )
+        ext = MagicMock()
+
+        # 22時台に 00.mp4（範囲外: 22:00 < 22:30）と 30.mp4（範囲内: 22:30）を配置
+        hour_dir = tmp_path / "dl" / "20241231" / "22"
+        hour_dir.mkdir(parents=True)
+        (hour_dir / "00.mp4").write_bytes(b"video0")
+        (hour_dir / "30.mp4").write_bytes(b"video30")
+
+        pipeline = Pipeline(config, downloader=MagicMock(), detector=det,
+                          compositor=MagicMock(), concatenator=MagicMock(),
+                          extractor=ext, db=memory_db)
+        result = pipeline.redetect_from_local("20250101")
+
+        # 00.mp4 は範囲外なのでスキップ、30.mp4 のみ処理される
+        assert result.clips_processed == 1
+        assert det.detect.call_count == 1

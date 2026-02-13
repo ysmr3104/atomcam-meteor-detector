@@ -96,8 +96,11 @@ class Pipeline:
                 downloaded = self._downloader.download_hour(slot_date, hour, download_dir)
 
                 for clip_url, local_path in downloaded:
-                    clips_processed += 1
                     minute = int(local_path.stem)
+                    if not self._clip_in_range(hour, minute):
+                        logger.debug("Clip %02d:%02d outside range, skipping", hour, minute)
+                        continue
+                    clips_processed += 1
 
                     if self._db:
                         self._db.clips.upsert_clip(
@@ -260,8 +263,10 @@ class Pipeline:
                 continue
 
             for mp4_file in sorted(hour_dir.glob("*.mp4")):
-                clips_processed += 1
                 minute = int(mp4_file.stem)
+                if not self._clip_in_range(hour, minute):
+                    continue
+                clips_processed += 1
                 clip_url = (
                     f"http://{self._config.camera.host}"
                     f"/{self._config.camera.base_path}"
@@ -578,19 +583,45 @@ class Pipeline:
                 available.append((slot_date, hour))
         return available
 
+    def _clip_in_range(self, hour: int, minute: int) -> bool:
+        """指定の (hour, minute) が観測時間範囲内かを判定する。"""
+        start_h, start_m = (int(x) for x in self._config.schedule.start_time.split(":"))
+        end_h, end_m = (int(x) for x in self._config.schedule.end_time.split(":"))
+
+        clip = hour * 60 + minute
+        start = start_h * 60 + start_m
+        end = end_h * 60 + end_m
+
+        if start >= end:  # 日付またぎ
+            return clip >= start or clip < end
+        else:
+            return start <= clip < end
+
     def _build_time_slots(self, date_str: str) -> list[tuple[str, int]]:
         """Build (directory_date, hour) pairs for the observation night.
 
-        An observation night spans the previous day's evening hours and
-        the current day's early morning hours.
+        An observation night spans from start_time to end_time.
+        When crossing midnight, the evening hours use the previous day's
+        directory and the morning hours use the current day's directory.
         """
         target = datetime.strptime(date_str, "%Y%m%d")
         prev_day = (target - timedelta(days=1)).strftime("%Y%m%d")
 
+        start_h, start_m = (int(x) for x in self._config.schedule.start_time.split(":"))
+        end_h, end_m = (int(x) for x in self._config.schedule.end_time.split(":"))
+        start_total = start_h * 60 + start_m
+        end_total = end_h * 60 + end_m
+
         slots: list[tuple[str, int]] = []
-        for hour in self._config.schedule.prev_date_hours:
-            slots.append((prev_day, hour))
-        for hour in self._config.schedule.curr_date_hours:
-            slots.append((date_str, hour))
+        if start_total >= end_total:  # 日付をまたぐ (例: 22:00→06:00)
+            for h in range(start_h, 24):
+                slots.append((prev_day, h))
+            end_h_inclusive = end_h + 1 if end_m > 0 else end_h
+            for h in range(0, end_h_inclusive):
+                slots.append((date_str, h))
+        else:  # 同日内 (例: 01:00→05:00)
+            end_h_inclusive = end_h + 1 if end_m > 0 else end_h
+            for h in range(start_h, end_h_inclusive):
+                slots.append((date_str, h))
 
         return slots

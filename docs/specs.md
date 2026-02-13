@@ -3,7 +3,7 @@
 ## Pipeline Flow
 
 1. **日付決定**: 正午前 → 今日 (昨夜の観測)、正午後 → 明日 (今夜の観測)
-2. **時間帯構築**: 前日の `prev_date_hours` + 当日の `curr_date_hours`
+2. **時間帯構築**: `start_time` から `end_time` までの時間スロットを生成（分レベルでフィルタリング）
 3. **ダウンロード**: 各時間帯のクリップを HTTP で取得 (リトライ付き)
 4. **検出**: フレーム差分 → Canny エッジ → HoughLinesP
 5. **合成**: 検出画像を比較明合成 (pixel-wise maximum)

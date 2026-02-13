@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 from typing import Optional
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from atomcam_meteor.exceptions import ConfigError
 
@@ -33,6 +34,8 @@ class DetectionConfig(BaseModel):
     min_line_length: int = 30
     canny_threshold1: int = 100
     canny_threshold2: int = 200
+    hough_threshold: int = 25
+    max_line_gap: int = 5
     exposure_duration_sec: float = 1.0
     clip_margin_sec: float = 0.5
     mask_path: Optional[str] = None
@@ -41,8 +44,18 @@ class DetectionConfig(BaseModel):
 class ScheduleConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
-    prev_date_hours: list[int] = Field(default_factory=lambda: [22, 23])
-    curr_date_hours: list[int] = Field(default_factory=lambda: [0, 1, 2, 3, 4, 5])
+    start_time: str = "22:00"
+    end_time: str = "06:00"
+
+    @field_validator("start_time", "end_time")
+    @classmethod
+    def _validate_time_format(cls, v: str) -> str:
+        if not re.match(r"^\d{2}:\d{2}$", v):
+            raise ValueError(f"時刻は HH:MM 形式で指定してください: {v!r}")
+        h, m = int(v[:2]), int(v[3:])
+        if not (0 <= h <= 23 and 0 <= m <= 59):
+            raise ValueError(f"無効な時刻です: {v!r}")
+        return v
 
 
 class PathsConfig(BaseModel):
