@@ -116,6 +116,32 @@ sudo systemctl enable atomcam-web
 sudo systemctl start atomcam-web
 ```
 
+### 外部からのアクセス (Tailscale)
+
+Web ダッシュボードは LAN 内からのみアクセス可能ですが、[Tailscale](https://tailscale.com/) を使うことで外出先のスマホや PC からも安全にアクセスできます。
+
+**Raspberry Pi 側の設定:**
+
+```bash
+# Tailscale をインストール
+curl -fsSL https://tailscale.com/install.sh | sh
+
+# 起動・認証（表示される URL をブラウザで開いてログイン）
+sudo tailscale up
+
+# Tailscale IP を確認
+tailscale ip -4
+# 例: 100.89.209.44
+```
+
+**スマホ / PC 側の設定:**
+
+1. Tailscale アプリをインストール（[iOS](https://apps.apple.com/app/tailscale/id1470499037) / [Android](https://play.google.com/store/apps/details?id=com.tailscale.ipn) / [macOS・Windows](https://tailscale.com/download)）
+2. Raspberry Pi と同じアカウントでログイン
+3. ブラウザで `http://<Tailscale IP>:8080/` にアクセス
+
+Tailscale は systemd サービスとして自動起動するため、Raspberry Pi の再起動後も設定は維持されます。
+
 ## Architecture
 
 ```
