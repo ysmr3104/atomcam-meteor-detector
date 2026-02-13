@@ -3,21 +3,30 @@
 {% block content %}
 <h1>Night: {{ date_str }}</h1>
 
-{% if composite_url %}
-<section>
-    <h2>Composite Image</h2>
-    <img src="{{ composite_url }}" alt="Composite" class="composite-img" loading="lazy">
-</section>
-{% endif %}
+{% if composite_url or video_url %}
+<div class="output-row">
+    {% if composite_url %}
+    <section>
+        <h2>Composite Image</h2>
+        <img src="{{ composite_url }}" alt="Composite" class="composite-img" loading="lazy">
+    </section>
+    {% endif %}
 
-{% if video_url %}
-<section>
-    <h2>Combined Video</h2>
-    <video controls class="video-player" preload="metadata">
-        <source src="{{ video_url }}" type="video/mp4">
-    </video>
-    <a href="{{ video_url }}" download style="display:inline-block; margin-top:0.5rem;">Download</a>
-</section>
+    {% if video_url %}
+    <section>
+        <h2>Combined Video</h2>
+        <video controls class="video-player" preload="metadata">
+            <source src="{{ video_url }}" type="video/mp4">
+        </video>
+        <p style="display:flex; gap:0.5rem; margin-top:0.5rem; align-items:center;">
+            <a href="{{ video_url }}" download>Download</a>
+            <button id="delete-video-btn" onclick="deleteVideo()" class="outline secondary" style="margin:0; padding:0.25rem 0.75rem;">
+                Delete Video
+            </button>
+        </p>
+    </section>
+    {% endif %}
+</div>
 {% endif %}
 
 <section>
@@ -296,6 +305,28 @@ async function pollConcatenate() {
             btn.textContent = 'Concatenate Video';
         }
     }, 2000);
+}
+
+async function deleteVideo() {
+    if (!confirm('結合動画を削除しますか？')) return;
+    const btn = document.getElementById('delete-video-btn');
+    btn.disabled = true;
+    btn.textContent = 'Deleting...';
+    try {
+        const resp = await fetch(`/api/nights/{{ date_str }}/video`, {method: 'DELETE'});
+        if (resp.ok) {
+            location.reload();
+        } else {
+            const err = await resp.json();
+            alert('Delete failed: ' + (err.detail || 'Unknown error'));
+            btn.disabled = false;
+            btn.textContent = 'Delete Video';
+        }
+    } catch (e) {
+        alert('Request failed: ' + e.message);
+        btn.disabled = false;
+        btn.textContent = 'Delete Video';
+    }
 }
 
 // ページ読み込み時に実行中のredetectを自動検知

@@ -269,6 +269,23 @@ def api_bulk_detections(
     return {"date_str": date_str, "excluded": excluded}
 
 
+@router.delete("/api/nights/{date_str}/video")
+def api_delete_video(
+    date_str: str,
+    db: StateDB = Depends(get_db),
+    config: AppConfig = Depends(get_config),
+) -> dict:
+    """Delete the concatenated video file and clear the DB record."""
+    night_output = db.nights.get_output(date_str)
+    if not night_output or not night_output.get("concat_video"):
+        raise HTTPException(status_code=404, detail="動画が見つかりません")
+    video_path = Path(night_output["concat_video"])
+    if video_path.exists():
+        video_path.unlink()
+    db.nights.clear_concat_video(date_str)
+    return {"date_str": date_str, "status": "deleted"}
+
+
 @router.post("/api/nights/{date_str}/rebuild")
 def api_rebuild(
     date_str: str,

@@ -67,6 +67,22 @@
             max-width: 100%;
             border-radius: var(--pico-border-radius);
         }
+        .output-row {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+        .output-row > section {
+            min-width: 0;
+        }
+        @media (min-width: 768px) {
+            .output-row {
+                flex-direction: row;
+            }
+            .output-row > section {
+                flex: 1;
+            }
+        }
         .night-card {
             display: block;
             text-decoration: none;

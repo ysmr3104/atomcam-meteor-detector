@@ -340,6 +340,16 @@ class NightOutputRepository:
         ).fetchone()
         return dict(row) if row else None
 
+    def clear_concat_video(self, date_str: str) -> None:
+        """Clear the concat_video path for a night."""
+        self._conn.execute(
+            """UPDATE night_outputs
+               SET concat_video = NULL, last_updated_at = datetime('now')
+               WHERE date_str = ?""",
+            (date_str,),
+        )
+        self._conn.commit()
+
     def get_all_nights(self) -> list[dict]:
         """Return all night output records ordered by date descending."""
         rows = self._conn.execute(
