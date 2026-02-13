@@ -159,6 +159,58 @@ class TestAPI:
         assert resp.status_code == 200
         assert "status" in resp.json()
 
+    def test_redetect_status_with_progress(self, client):
+        """進捗情報がステータスレスポンスに含まれること"""
+        from atomcam_meteor.web.routes import _redetect_status
+        _redetect_status["20250101"] = {
+            "status": "running", "processed": 5, "total": 237,
+        }
+        try:
+            resp = client.get("/api/nights/20250101/redetect/status")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["status"] == "running"
+            assert data["processed"] == 5
+            assert data["total"] == 237
+        finally:
+            _redetect_status.pop("20250101", None)
+
+    def test_redetect_duplicate_rejected(self, client, seeded_db):
+        """running 中の POST が 409 を返すこと"""
+        from atomcam_meteor.web.routes import _redetect_status
+        _redetect_status["20250101"] = {
+            "status": "running", "processed": 10, "total": 100,
+        }
+        try:
+            resp = client.post("/api/nights/20250101/redetect")
+            assert resp.status_code == 409
+            assert "already running" in resp.json()["detail"]
+        finally:
+            _redetect_status.pop("20250101", None)
+
+    def test_redetect_cancel(self, client):
+        """キャンセルエンドポイントが動作すること"""
+        import threading
+        from atomcam_meteor.web.routes import _redetect_cancel_events, _redetect_status
+        event = threading.Event()
+        _redetect_cancel_events["20250101"] = event
+        _redetect_status["20250101"] = {
+            "status": "running", "processed": 5, "total": 100,
+        }
+        try:
+            resp = client.post("/api/nights/20250101/redetect/cancel")
+            assert resp.status_code == 200
+            assert resp.json()["status"] == "cancelling"
+            assert event.is_set()
+        finally:
+            _redetect_cancel_events.pop("20250101", None)
+            _redetect_status.pop("20250101", None)
+
+    def test_redetect_cancel_no_task(self, client):
+        """実行中タスクがない場合のキャンセルが 404 を返すこと"""
+        resp = client.post("/api/nights/20250101/redetect/cancel")
+        assert resp.status_code == 404
+
 
 class TestDetectionAPI:
     def test_toggle_detection(self, client, seeded_db_with_detections):

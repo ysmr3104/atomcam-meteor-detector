@@ -1,5 +1,6 @@
 """Tests for the pipeline orchestrator."""
 
+import threading
 from datetime import datetime
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -457,6 +458,68 @@ class TestRedetectFromLocal:
         assert result.detections_found == 0
         dl.download_hour.assert_not_called()
         det.detect.assert_not_called()
+
+    def test_redetect_cancel_event(self, mock_deps, tmp_path, memory_db):
+        """cancel_event をセットすると処理が中断されること"""
+        config, dl, det, comp, concat, ext, _ = mock_deps
+
+        dl_dir = tmp_path / "dl"
+        hour_dir = dl_dir / "20241231" / "22"
+        hour_dir.mkdir(parents=True)
+        (hour_dir / "00.mp4").write_bytes(b"video0")
+        (hour_dir / "01.mp4").write_bytes(b"video1")
+        (hour_dir / "02.mp4").write_bytes(b"video2")
+
+        cancel_event = threading.Event()
+
+        def detect_side_effect(path, output_dir):
+            # 最初のクリップ処理後にキャンセル
+            cancel_event.set()
+            return DetectionResult(
+                detected=False, line_count=0, image_path=None, lines=[],
+            )
+
+        det.detect.side_effect = detect_side_effect
+
+        pipeline = Pipeline(config, downloader=dl, detector=det,
+                          compositor=comp, concatenator=concat, extractor=ext,
+                          db=memory_db)
+        result = pipeline.redetect_from_local("20250101", cancel_event=cancel_event)
+
+        # 最初の1つだけ処理され、残りはキャンセルされる
+        assert result.clips_processed == 1
+        assert det.detect.call_count == 1
+
+    def test_redetect_progress_callback(self, mock_deps, tmp_path, memory_db):
+        """progress_callback が正しく呼ばれること"""
+        config, dl, det, comp, concat, ext, _ = mock_deps
+
+        dl_dir = tmp_path / "dl"
+        hour_dir = dl_dir / "20241231" / "22"
+        hour_dir.mkdir(parents=True)
+        (hour_dir / "00.mp4").write_bytes(b"video0")
+        (hour_dir / "01.mp4").write_bytes(b"video1")
+
+        det.detect.return_value = DetectionResult(
+            detected=False, line_count=0, image_path=None, lines=[],
+        )
+
+        progress_calls: list[tuple[int, int]] = []
+
+        def on_progress(processed: int, total: int) -> None:
+            progress_calls.append((processed, total))
+
+        pipeline = Pipeline(config, downloader=dl, detector=det,
+                          compositor=comp, concatenator=concat, extractor=ext,
+                          db=memory_db)
+        result = pipeline.redetect_from_local(
+            "20250101", progress_callback=on_progress,
+        )
+
+        assert result.clips_processed == 2
+        assert len(progress_calls) == 2
+        assert progress_calls[0] == (1, 2)
+        assert progress_calls[1] == (2, 2)
 
 
 class TestTimeSlots:

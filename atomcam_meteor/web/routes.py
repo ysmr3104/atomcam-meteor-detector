@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -49,7 +50,8 @@ router = APIRouter()
 # In-memory status tracking
 _rebuild_status: dict[str, str] = {}
 _concatenate_status: dict[str, str] = {}
-_redetect_status: dict[str, str] = {}
+_redetect_status: dict[str, dict[str, str | int]] = {}
+_redetect_cancel_events: dict[str, threading.Event] = {}
 
 
 # ── HTML pages ──────────────────────────────────────────────────────────
@@ -305,14 +307,20 @@ def api_concatenate_status(date_str: str) -> dict:
     return {"date_str": date_str, "status": status}
 
 
-@router.post("/api/nights/{date_str}/redetect")
+@router.post("/api/nights/{date_str}/redetect", response_model=None)
 def api_redetect(
     date_str: str,
     background_tasks: BackgroundTasks,
     config: AppConfig = Depends(get_config),
-) -> dict:
+) -> dict | JSONResponse:
     """Trigger re-detection on local files for a night."""
-    _redetect_status[date_str] = "running"
+    current = _redetect_status.get(date_str)
+    if current and current.get("status") == "running":
+        return JSONResponse(
+            status_code=409,
+            content={"detail": "Re-detection already running", "date_str": date_str},
+        )
+    _redetect_status[date_str] = {"status": "running", "processed": 0, "total": 0}
     background_tasks.add_task(_do_redetect, date_str, config)
     return {"date_str": date_str, "status": "started"}
 
@@ -320,26 +328,73 @@ def api_redetect(
 @router.get("/api/nights/{date_str}/redetect/status")
 def api_redetect_status(date_str: str) -> dict:
     """Check re-detection progress."""
-    status = _redetect_status.get(date_str, "idle")
-    return {"date_str": date_str, "status": status}
+    info = _redetect_status.get(date_str)
+    if info is None:
+        return {"date_str": date_str, "status": "idle", "processed": 0, "total": 0}
+    return {"date_str": date_str, **info}
+
+
+@router.post("/api/nights/{date_str}/redetect/cancel", response_model=None)
+def api_redetect_cancel(date_str: str) -> dict | JSONResponse:
+    """Cancel a running re-detection task."""
+    event = _redetect_cancel_events.get(date_str)
+    if event is None:
+        return JSONResponse(
+            status_code=404,
+            content={"detail": "No running re-detection to cancel", "date_str": date_str},
+        )
+    event.set()
+    return {"date_str": date_str, "status": "cancelling"}
 
 
 def _do_redetect(date_str: str, config: AppConfig) -> None:
     """Background task: re-run detection on local files."""
+    cancel_event = threading.Event()
+    _redetect_cancel_events[date_str] = cancel_event
     try:
         from atomcam_meteor.pipeline import Pipeline
         from atomcam_meteor.services.db import StateDB
 
+        def _progress(processed: int, total: int) -> None:
+            _redetect_status[date_str] = {
+                "status": "running",
+                "processed": processed,
+                "total": total,
+            }
+
         db = StateDB.from_path(config.paths.resolve_db_path())
         try:
             pipeline = Pipeline(config, db=db)
-            pipeline.redetect_from_local(date_str)
+            pipeline.redetect_from_local(
+                date_str,
+                cancel_event=cancel_event,
+                progress_callback=_progress,
+            )
         finally:
             db.close()
-        _redetect_status[date_str] = "completed"
+        if cancel_event.is_set():
+            prev = _redetect_status.get(date_str, {})
+            _redetect_status[date_str] = {
+                "status": "cancelled",
+                "processed": prev.get("processed", 0) if isinstance(prev, dict) else 0,
+                "total": prev.get("total", 0) if isinstance(prev, dict) else 0,
+            }
+        else:
+            prev = _redetect_status.get(date_str, {})
+            _redetect_status[date_str] = {
+                "status": "completed",
+                "processed": prev.get("processed", 0) if isinstance(prev, dict) else 0,
+                "total": prev.get("total", 0) if isinstance(prev, dict) else 0,
+            }
     except Exception as exc:
         logger.error("Re-detection failed for %s: %s", date_str, exc)
-        _redetect_status[date_str] = f"error: {exc}"
+        _redetect_status[date_str] = {
+            "status": f"error: {exc}",
+            "processed": 0,
+            "total": 0,
+        }
+    finally:
+        _redetect_cancel_events.pop(date_str, None)
 
 
 def _do_rebuild(date_str: str, config: AppConfig) -> None:

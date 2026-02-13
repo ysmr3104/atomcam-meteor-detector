@@ -28,6 +28,9 @@
             <button id="redetect-btn" onclick="triggerRedetect()" class="outline" style="margin:0; padding:0.25rem 0.75rem;">
                 Re-detect
             </button>
+            <button id="redetect-cancel-btn" onclick="cancelRedetect()" class="outline secondary" style="margin:0; padding:0.25rem 0.75rem; display:none;">
+                Cancel
+            </button>
             <button id="rebuild-btn" onclick="triggerRebuild()" class="outline" style="margin:0; padding:0.25rem 0.75rem;">
                 Rebuild Composite
             </button>
@@ -140,11 +143,17 @@ async function toggleDetection(detectionId, excluded) {
 
 async function triggerRedetect() {
     const btn = document.getElementById('redetect-btn');
+    const cancelBtn = document.getElementById('redetect-cancel-btn');
     btn.disabled = true;
     btn.textContent = 'Re-detecting...';
     try {
         const resp = await fetch(`/api/nights/{{ date_str }}/redetect`, {method: 'POST'});
         if (resp.ok) {
+            cancelBtn.style.display = '';
+            pollRedetect();
+        } else if (resp.status === 409) {
+            btn.textContent = 'Re-detecting...';
+            cancelBtn.style.display = '';
             pollRedetect();
         } else {
             btn.disabled = false;
@@ -158,25 +167,47 @@ async function triggerRedetect() {
     }
 }
 
+async function cancelRedetect() {
+    const cancelBtn = document.getElementById('redetect-cancel-btn');
+    cancelBtn.disabled = true;
+    cancelBtn.textContent = 'Cancelling...';
+    try {
+        await fetch(`/api/nights/{{ date_str }}/redetect/cancel`, {method: 'POST'});
+    } catch (e) {
+        // ポーリングがステータスを処理するため無視
+    }
+}
+
 async function pollRedetect() {
     const btn = document.getElementById('redetect-btn');
+    const cancelBtn = document.getElementById('redetect-cancel-btn');
     const interval = setInterval(async () => {
         try {
             const resp = await fetch(`/api/nights/{{ date_str }}/redetect/status`);
             const data = await resp.json();
-            if (data.status === 'completed') {
+            if (data.status === 'running') {
+                if (data.total > 0) {
+                    btn.textContent = `Re-detecting... ${data.processed}/${data.total}`;
+                }
+            } else if (data.status === 'completed' || data.status === 'cancelled') {
                 clearInterval(interval);
                 location.reload();
             } else if (data.status.startsWith('error')) {
                 clearInterval(interval);
                 btn.disabled = false;
                 btn.textContent = 'Re-detect';
+                cancelBtn.style.display = 'none';
+                cancelBtn.disabled = false;
+                cancelBtn.textContent = 'Cancel';
                 alert('Re-detection error: ' + data.status);
             }
         } catch (e) {
             clearInterval(interval);
             btn.disabled = false;
             btn.textContent = 'Re-detect';
+            cancelBtn.style.display = 'none';
+            cancelBtn.disabled = false;
+            cancelBtn.textContent = 'Cancel';
         }
     }, 2000);
 }

@@ -5,6 +5,8 @@ from __future__ import annotations
 import dataclasses
 import json
 import logging
+import threading
+from collections.abc import Callable
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
@@ -237,7 +239,12 @@ class Pipeline:
             video_path=None,
         )
 
-    def redetect_from_local(self, date_str: str | None = None) -> PipelineResult:
+    def redetect_from_local(
+        self,
+        date_str: str | None = None,
+        cancel_event: threading.Event | None = None,
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> PipelineResult:
         """Re-run detection on already-downloaded local files (no camera access).
 
         Scans the download directory for existing MP4 files matching the
@@ -253,78 +260,92 @@ class Pipeline:
 
         time_slots = self._build_time_slots(date_str)
 
-        clips_processed = 0
-        detections_found = 0
-        detected_images: list[Path] = []
-
+        # 事前にクリップ総数をカウント
+        all_mp4_files: list[tuple[str, int, Path]] = []
         for slot_date, hour in time_slots:
             hour_dir = download_dir / slot_date / f"{hour:02d}"
             if not hour_dir.is_dir():
                 continue
-
             for mp4_file in sorted(hour_dir.glob("*.mp4")):
                 minute = int(mp4_file.stem)
                 if not self._clip_in_range(hour, minute):
                     continue
-                clips_processed += 1
-                clip_url = (
-                    f"http://{self._config.camera.host}"
-                    f"/{self._config.camera.base_path}"
-                    f"/{slot_date}/{hour:02d}/{mp4_file.name}"
+                all_mp4_files.append((slot_date, hour, mp4_file))
+
+        total = len(all_mp4_files)
+        clips_processed = 0
+        detections_found = 0
+        detected_images: list[Path] = []
+        for slot_date, hour, mp4_file in all_mp4_files:
+            if cancel_event is not None and cancel_event.is_set():
+                logger.info("Redetect cancelled at %d/%d clips", clips_processed, total)
+                break
+
+            minute = int(mp4_file.stem)
+            clips_processed += 1
+            clip_url = (
+                f"http://{self._config.camera.host}"
+                f"/{self._config.camera.base_path}"
+                f"/{slot_date}/{hour:02d}/{mp4_file.name}"
+            )
+
+            if self._db:
+                self._db.clips.upsert_clip(
+                    clip_url, date_str, hour, minute,
+                    local_path=str(mp4_file),
+                    status=ClipStatus.DOWNLOADED,
+                )
+
+            try:
+                result = self._detector.detect(mp4_file, output_dir)
+            except AtomcamError as exc:
+                logger.error("Detection error for %s: %s", mp4_file, exc)
+                if self._db:
+                    self._db.clips.update_clip_status(
+                        clip_url, ClipStatus.ERROR, error_message=str(exc),
+                    )
+                self._hooks.fire_error(ErrorEvent(
+                    stage="detection", error=str(exc),
+                    context={"clip_url": clip_url},
+                ))
+                if progress_callback is not None:
+                    progress_callback(clips_processed, total)
+                continue
+
+            if result.detected:
+                detections_found += 1
+                if result.image_path:
+                    detected_images.append(result.image_path)
+
+                detected_video_json = self._extract_short_clips(
+                    mp4_file, result, output_dir,
                 )
 
                 if self._db:
-                    self._db.clips.upsert_clip(
-                        clip_url, date_str, hour, minute,
-                        local_path=str(mp4_file),
-                        status=ClipStatus.DOWNLOADED,
-                    )
-
-                try:
-                    result = self._detector.detect(mp4_file, output_dir)
-                except AtomcamError as exc:
-                    logger.error("Detection error for %s: %s", mp4_file, exc)
-                    if self._db:
-                        self._db.clips.update_clip_status(
-                            clip_url, ClipStatus.ERROR, error_message=str(exc),
-                        )
-                    self._hooks.fire_error(ErrorEvent(
-                        stage="detection", error=str(exc),
-                        context={"clip_url": clip_url},
-                    ))
-                    continue
-
-                if result.detected:
-                    detections_found += 1
-                    if result.image_path:
-                        detected_images.append(result.image_path)
-
-                    detected_video_json = self._extract_short_clips(
-                        mp4_file, result, output_dir,
-                    )
-
-                    if self._db:
-                        self._db.clips.update_clip_status(
-                            clip_url, ClipStatus.DETECTED,
-                            detection_image=str(result.image_path) if result.image_path else None,
-                            detected_video=detected_video_json,
-                            line_count=result.line_count,
-                        )
-                        self._save_detections(clip_url, result)
-
-                    self._hooks.fire_detection(DetectionEvent(
-                        date_str=date_str,
-                        hour=hour,
-                        minute=minute,
+                    self._db.clips.update_clip_status(
+                        clip_url, ClipStatus.DETECTED,
+                        detection_image=str(result.image_path) if result.image_path else None,
+                        detected_video=detected_video_json,
                         line_count=result.line_count,
-                        image_path=str(result.image_path) if result.image_path else "",
-                        clip_path=str(mp4_file),
-                    ))
-                else:
-                    if self._db:
-                        self._db.clips.update_clip_status(
-                            clip_url, ClipStatus.NO_DETECTION,
-                        )
+                    )
+                    self._save_detections(clip_url, result)
+
+                self._hooks.fire_detection(DetectionEvent(
+                    date_str=date_str,
+                    hour=hour,
+                    minute=minute,
+                    line_count=result.line_count,
+                    image_path=str(result.image_path) if result.image_path else "",
+                    clip_path=str(mp4_file),
+                ))
+            else:
+                if self._db:
+                    self._db.clips.update_clip_status(
+                        clip_url, ClipStatus.NO_DETECTION,
+                    )
+
+            if progress_callback is not None:
+                progress_callback(clips_processed, total)
 
         composite_path: str | None = None
         if detected_images:
