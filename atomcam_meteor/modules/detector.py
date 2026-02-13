@@ -39,6 +39,30 @@ class MeteorDetector:
             else:
                 logger.warning("Mask path configured but not found: %s", mask_file)
 
+    def _get_mask(self, h: int, w: int) -> Optional[np.ndarray]:
+        """マスク画像と下部除外を合成して返す。"""
+        mask = None
+
+        # ファイルベースのマスク
+        if self._mask is not None:
+            mask = self._mask
+            mh, mw = mask.shape[:2]
+            if (mh, mw) != (h, w):
+                mask = cv2.resize(mask, (w, h))
+
+        # 下部除外マスク
+        if self._config.exclude_bottom_pct > 0:
+            bottom_mask = np.full((h, w), 255, dtype=np.uint8)
+            exclude_rows = int(h * self._config.exclude_bottom_pct / 100)
+            if exclude_rows > 0:
+                bottom_mask[h - exclude_rows:, :] = 0
+            if mask is not None:
+                mask = cv2.bitwise_and(mask, bottom_mask)
+            else:
+                mask = bottom_mask
+
+        return mask
+
     def detect(self, clip_path: Path, output_dir: Path) -> DetectionResult:
         """Run meteor detection on a video clip.
 
@@ -61,13 +85,10 @@ class MeteorDetector:
     def _has_lines(self, composite: np.ndarray) -> bool:
         """Check whether a diff composite contains any Hough lines."""
         img = composite
-        if self._mask is not None:
-            mask_resized = self._mask
-            h, w = img.shape[:2]
-            mh, mw = mask_resized.shape[:2]
-            if (mh, mw) != (h, w):
-                mask_resized = cv2.resize(mask_resized, (w, h))
-            img = cv2.bitwise_and(img, mask_resized)
+        h, w = img.shape[:2]
+        mask = self._get_mask(h, w)
+        if mask is not None:
+            img = cv2.bitwise_and(img, mask)
         blurred = cv2.GaussianBlur(img, (5, 5), 0)
         edges = cv2.Canny(
             blurred, self._config.canny_threshold1, self._config.canny_threshold2
@@ -179,13 +200,10 @@ class MeteorDetector:
             )
 
         # 検出あり — 最終合成からライン座標を取得（出力用）
-        if self._mask is not None:
-            mask_resized = self._mask
-            h, w = final_composite.shape[:2]
-            mh, mw = mask_resized.shape[:2]
-            if (mh, mw) != (h, w):
-                mask_resized = cv2.resize(mask_resized, (w, h))
-            final_composite = cv2.bitwise_and(final_composite, mask_resized)
+        h, w = final_composite.shape[:2]
+        mask = self._get_mask(h, w)
+        if mask is not None:
+            final_composite = cv2.bitwise_and(final_composite, mask)
 
         blurred = cv2.GaussianBlur(final_composite, (5, 5), 0)
         edges = cv2.Canny(

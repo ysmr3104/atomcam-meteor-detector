@@ -39,6 +39,14 @@ class DetectionConfig(BaseModel):
     exposure_duration_sec: float = 1.0
     clip_margin_sec: float = 0.5
     mask_path: Optional[str] = None
+    exclude_bottom_pct: float = 0
+
+    @field_validator("exclude_bottom_pct")
+    @classmethod
+    def _validate_exclude_bottom_pct(cls, v: float) -> float:
+        if not 0 <= v <= 50:
+            raise ValueError(f"exclude_bottom_pct は 0〜50 の範囲で指定してください: {v}")
+        return v
 
 
 class ScheduleConfig(BaseModel):

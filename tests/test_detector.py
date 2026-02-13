@@ -149,6 +149,54 @@ class TestMeteorDetector:
         result_high = det_high.detect(video_path, tmp_path / "out_high")
         assert result_high.detected is False
 
+    def test_exclude_bottom_pct_suppresses_bottom_lines(self, tmp_path):
+        """exclude_bottom_pct で下部の直線が検出対象から除外される。"""
+        video_path = tmp_path / "bottom_line.mp4"
+        h, w = 480, 640
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(str(video_path), fourcc, 15, (w, h))
+
+        # 下部 20% にのみ明るい直線を描画
+        y_line = int(h * 0.9)  # y=432 付近（下部10%地点）
+        for i in range(30):
+            frame = np.zeros((h, w, 3), dtype=np.uint8)
+            if i % 2 == 1:
+                cv2.line(frame, (50, y_line), (590, y_line), (0, 200, 255), 2)
+            writer.write(frame)
+        writer.release()
+
+        # 除外なし → 検出される
+        cfg_no_exclude = DetectionConfig(min_line_length=30, exclude_bottom_pct=0)
+        det_no = MeteorDetector(cfg_no_exclude)
+        result_no = det_no.detect(video_path, tmp_path / "out_no")
+        assert result_no.detected is True
+
+        # 下部 20% 除外 → 検出されない
+        cfg_exclude = DetectionConfig(min_line_length=30, exclude_bottom_pct=20)
+        det_ex = MeteorDetector(cfg_exclude)
+        result_ex = det_ex.detect(video_path, tmp_path / "out_ex")
+        assert result_ex.detected is False
+
+    def test_exclude_bottom_pct_preserves_upper_lines(self, tmp_path):
+        """exclude_bottom_pct は上部の直線検出に影響しない。"""
+        video_path = tmp_path / "upper_line.mp4"
+        h, w = 480, 640
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(str(video_path), fourcc, 15, (w, h))
+
+        # 上部に直線を描画
+        for i in range(30):
+            frame = np.zeros((h, w, 3), dtype=np.uint8)
+            if i % 2 == 1:
+                cv2.line(frame, (100, 100), (500, 200), (0, 200, 255), 2)
+            writer.write(frame)
+        writer.release()
+
+        cfg = DetectionConfig(min_line_length=30, exclude_bottom_pct=20)
+        det = MeteorDetector(cfg)
+        result = det.detect(video_path, tmp_path / "out")
+        assert result.detected is True
+
     def test_detection_result_fields(self):
         r = DetectionResult(
             detected=True, line_count=3, image_path=Path("/img.png"),

@@ -35,6 +35,17 @@ class TestDetectionConfig:
         config = DetectionConfig()
         assert config.min_line_length == 30
         assert config.mask_path is None
+        assert config.exclude_bottom_pct == 0
+
+    def test_exclude_bottom_pct_valid(self):
+        config = DetectionConfig(exclude_bottom_pct=20)
+        assert config.exclude_bottom_pct == 20
+
+    def test_exclude_bottom_pct_out_of_range(self):
+        with pytest.raises(ValidationError, match="0〜50"):
+            DetectionConfig(exclude_bottom_pct=60)
+        with pytest.raises(ValidationError, match="0〜50"):
+            DetectionConfig(exclude_bottom_pct=-1)
 
     def test_frozen(self):
         config = DetectionConfig()
