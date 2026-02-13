@@ -25,6 +25,9 @@
         <h2>Detected Clips</h2>
         <p>{% if night_output %}{{ night_output.detection_count }}{% else %}0{% endif %} detection(s)</p>
         <p style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-top:0;">
+            <button id="redetect-btn" onclick="triggerRedetect()" class="outline" style="margin:0; padding:0.25rem 0.75rem;">
+                Re-detect
+            </button>
             <button id="rebuild-btn" onclick="triggerRebuild()" class="outline" style="margin:0; padding:0.25rem 0.75rem;">
                 Rebuild Composite
             </button>
@@ -133,6 +136,49 @@ async function toggleDetection(detectionId, excluded) {
     } catch (e) {
         alert('Request failed: ' + e.message);
     }
+}
+
+async function triggerRedetect() {
+    const btn = document.getElementById('redetect-btn');
+    btn.disabled = true;
+    btn.textContent = 'Re-detecting...';
+    try {
+        const resp = await fetch(`/api/nights/{{ date_str }}/redetect`, {method: 'POST'});
+        if (resp.ok) {
+            pollRedetect();
+        } else {
+            btn.disabled = false;
+            btn.textContent = 'Re-detect';
+            alert('Re-detection failed to start');
+        }
+    } catch (e) {
+        btn.disabled = false;
+        btn.textContent = 'Re-detect';
+        alert('Request failed: ' + e.message);
+    }
+}
+
+async function pollRedetect() {
+    const btn = document.getElementById('redetect-btn');
+    const interval = setInterval(async () => {
+        try {
+            const resp = await fetch(`/api/nights/{{ date_str }}/redetect/status`);
+            const data = await resp.json();
+            if (data.status === 'completed') {
+                clearInterval(interval);
+                location.reload();
+            } else if (data.status.startsWith('error')) {
+                clearInterval(interval);
+                btn.disabled = false;
+                btn.textContent = 'Re-detect';
+                alert('Re-detection error: ' + data.status);
+            }
+        } catch (e) {
+            clearInterval(interval);
+            btn.disabled = false;
+            btn.textContent = 'Re-detect';
+        }
+    }, 2000);
 }
 
 async function triggerRebuild() {

@@ -49,6 +49,7 @@ router = APIRouter()
 # In-memory status tracking
 _rebuild_status: dict[str, str] = {}
 _concatenate_status: dict[str, str] = {}
+_redetect_status: dict[str, str] = {}
 
 
 # ── HTML pages ──────────────────────────────────────────────────────────
@@ -302,6 +303,43 @@ def api_concatenate_status(date_str: str) -> dict:
     """Check concatenation progress."""
     status = _concatenate_status.get(date_str, "idle")
     return {"date_str": date_str, "status": status}
+
+
+@router.post("/api/nights/{date_str}/redetect")
+def api_redetect(
+    date_str: str,
+    background_tasks: BackgroundTasks,
+    config: AppConfig = Depends(get_config),
+) -> dict:
+    """Trigger re-detection on local files for a night."""
+    _redetect_status[date_str] = "running"
+    background_tasks.add_task(_do_redetect, date_str, config)
+    return {"date_str": date_str, "status": "started"}
+
+
+@router.get("/api/nights/{date_str}/redetect/status")
+def api_redetect_status(date_str: str) -> dict:
+    """Check re-detection progress."""
+    status = _redetect_status.get(date_str, "idle")
+    return {"date_str": date_str, "status": status}
+
+
+def _do_redetect(date_str: str, config: AppConfig) -> None:
+    """Background task: re-run detection on local files."""
+    try:
+        from atomcam_meteor.pipeline import Pipeline
+        from atomcam_meteor.services.db import StateDB
+
+        db = StateDB.from_path(config.paths.resolve_db_path())
+        try:
+            pipeline = Pipeline(config, db=db)
+            pipeline.redetect_from_local(date_str)
+        finally:
+            db.close()
+        _redetect_status[date_str] = "completed"
+    except Exception as exc:
+        logger.error("Re-detection failed for %s: %s", date_str, exc)
+        _redetect_status[date_str] = f"error: {exc}"
 
 
 def _do_rebuild(date_str: str, config: AppConfig) -> None:

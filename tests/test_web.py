@@ -149,6 +149,16 @@ class TestAPI:
         assert resp.status_code == 200
         assert "status" in resp.json()
 
+    def test_redetect_trigger(self, client, seeded_db):
+        resp = client.post("/api/nights/20250101/redetect")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "started"
+
+    def test_redetect_status(self, client):
+        resp = client.get("/api/nights/20250101/redetect/status")
+        assert resp.status_code == 200
+        assert "status" in resp.json()
+
 
 class TestDetectionAPI:
     def test_toggle_detection(self, client, seeded_db_with_detections):
