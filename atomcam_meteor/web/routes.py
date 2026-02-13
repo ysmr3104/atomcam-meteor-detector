@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -122,17 +123,25 @@ def night_page(
             except ValueError:
                 pass
 
-            # Load per-line detections from DB
+            # Load per-group detections from DB
             db_detections = db.detections.get_detections_by_clip(clip["id"])
             if db_detections:
                 for det in db_detections:
                     det["crop_url"] = None
+                    det["detection_time"] = None
                     if det.get("crop_image"):
                         try:
                             rel = Path(det["crop_image"]).relative_to(output_dir)
                             det["crop_url"] = f"/media/output/{rel}"
                         except ValueError:
                             pass
+                        # crop_image ファイル名からグループ秒数を算出
+                        m = re.search(r"_group(\d+)\.", det["crop_image"])
+                        if m:
+                            sec = int(m.group(1))
+                            det["detection_time"] = (
+                                f"{clip['hour']:02d}:{clip['minute']:02d}:{sec:02d}"
+                            )
                 clip["detections"] = db_detections
             else:
                 # Fallback: discover per-group composite images from filesystem
@@ -142,11 +151,20 @@ def night_page(
                 for lp in sorted(parent.glob(f"{stem}_group*.png")):
                     try:
                         rel = lp.relative_to(output_dir)
+                        fb_m = re.search(r"_group(\d+)\.", lp.name)
+                        fb_time = None
+                        if fb_m:
+                            fb_sec = int(fb_m.group(1))
+                            fb_time = (
+                                f"{clip['hour']:02d}:{clip['minute']:02d}"
+                                f":{fb_sec:02d}"
+                            )
                         clip["detections"].append({
                             "id": None,
                             "crop_url": f"/media/output/{rel}",
                             "excluded": 0,
                             "line_index": len(clip["detections"]),
+                            "detection_time": fb_time,
                         })
                     except ValueError:
                         pass

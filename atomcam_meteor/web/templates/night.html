@@ -51,8 +51,9 @@
                 <img src="{{ det.crop_url }}" alt="Line {{ det.line_index + 1 }}" loading="lazy">
             </a>
             <div class="meta">
-                <strong>{{ clip.actual_datetime }}:00</strong>
+                <strong>{{ clip.actual_datetime }}</strong>
                 | line {{ det.line_index + 1 }}/{{ clip.detections|length }}
+                {% if det.detection_time %}({{ det.detection_time }}){% endif %}
             </div>
             {% if det.id %}
             <button class="toggle-btn {% if det.excluded %}contrast{% else %}outline{% endif %}"
