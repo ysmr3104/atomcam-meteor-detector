@@ -82,8 +82,10 @@ class MeteorDetector:
                 clip_path=str(clip_path),
             ) from exc
 
-    def _has_lines(self, composite: np.ndarray) -> bool:
-        """Check whether a diff composite contains any Hough lines."""
+    def _find_lines(
+        self, composite: np.ndarray
+    ) -> list[tuple[int, int, int, int]]:
+        """差分合成画像から Hough 直線を検出して返す。"""
         img = composite
         h, w = img.shape[:2]
         mask = self._get_mask(h, w)
@@ -101,7 +103,12 @@ class MeteorDetector:
             minLineLength=self._config.min_line_length,
             maxLineGap=self._config.max_line_gap,
         )
-        return raw_lines is not None
+        if raw_lines is None:
+            return []
+        return [
+            (int(ln[0][0]), int(ln[0][1]), int(ln[0][2]), int(ln[0][3]))
+            for ln in raw_lines
+        ]
 
     def _detect_impl(
         self, cap: cv2.VideoCapture, clip_path: Path, output_dir: Path
@@ -128,10 +135,11 @@ class MeteorDetector:
             frames_per_group,
         )
 
-        final_composite: Optional[np.ndarray] = None
         color_composite: Optional[np.ndarray] = None
-        diff_composites: list[np.ndarray] = []
         detection_groups: list[int] = []
+        group_color_comps: dict[int, np.ndarray] = {}
+        group_lines: dict[int, list[tuple[int, int, int, int]]] = {}
+        has_frames = False
         group_index = 0
 
         while True:
@@ -151,6 +159,8 @@ class MeteorDetector:
             if len(group_gray) < 2:
                 break
 
+            has_frames = True
+
             # Pairwise differences within the group
             diff_composite: Optional[np.ndarray] = None
             for i in range(len(group_gray) - 1):
@@ -163,15 +173,13 @@ class MeteorDetector:
             # Free group memory
             del group_gray
 
-            # Check per-group detection and lighten-composite into final result
+            # グループ単位で直線検出し、検出グループのカラー合成を保持
             if diff_composite is not None:
-                if self._has_lines(diff_composite):
+                found = self._find_lines(diff_composite)
+                if found and group_color_comp is not None:
                     detection_groups.append(group_index)
-                if final_composite is None:
-                    final_composite = diff_composite
-                else:
-                    final_composite = cv2.max(final_composite, diff_composite)
-                diff_composites.append(diff_composite)
+                    group_color_comps[group_index] = group_color_comp
+                    group_lines[group_index] = found
 
             # Accumulate color composite for output image
             if group_color_comp is not None:
@@ -182,14 +190,12 @@ class MeteorDetector:
 
             group_index += 1
 
-        if final_composite is None:
+        if not has_frames:
             logger.warning("No frames processed from %s", clip_path)
             return DetectionResult(
                 detected=False, line_count=0, image_path=None, lines=[],
                 fps=fps,
             )
-
-        del diff_composites
 
         # グループ単位判定: いずれかのグループで直線が検出されなければ未検出
         if not detection_groups:
@@ -199,78 +205,49 @@ class MeteorDetector:
                 detection_groups=[], fps=fps,
             )
 
-        # 検出あり — 最終合成からライン座標を取得（出力用）
-        h, w = final_composite.shape[:2]
-        mask = self._get_mask(h, w)
-        if mask is not None:
-            final_composite = cv2.bitwise_and(final_composite, mask)
-
-        blurred = cv2.GaussianBlur(final_composite, (5, 5), 0)
-        edges = cv2.Canny(
-            blurred, self._config.canny_threshold1, self._config.canny_threshold2
+        # 全グループの検出ラインを集約
+        all_lines: list[tuple[int, int, int, int]] = []
+        for gi in detection_groups:
+            all_lines.extend(group_lines[gi])
+        logger.info(
+            "Detected %d line(s) in %s (groups: %s)",
+            len(all_lines), clip_path.name, detection_groups,
         )
-        raw_lines = cv2.HoughLinesP(
-            edges,
-            rho=1,
-            theta=np.pi / 180,
-            threshold=self._config.hough_threshold,
-            minLineLength=self._config.min_line_length,
-            maxLineGap=self._config.max_line_gap,
-        )
-
-        lines: list[tuple[int, int, int, int]] = []
-        if raw_lines is not None:
-            lines = [(int(l[0][0]), int(l[0][1]), int(l[0][2]), int(l[0][3])) for l in raw_lines]
-        logger.info("Detected %d line(s) in %s (groups: %s)", len(lines), clip_path.name, detection_groups)
 
         output_dir.mkdir(parents=True, exist_ok=True)
         image_path = output_dir / f"{clip_path.stem}_detect.png"
         cv2.imwrite(str(image_path), color_composite)
 
-        # Save per-line crop images
-        crop_paths = self._save_line_crops(color_composite, lines, output_dir, clip_path.stem)
+        # 検出グループごとにフルフレーム合成画像を保存
+        crop_paths = self._save_group_composites(
+            group_color_comps, detection_groups, output_dir, clip_path.stem,
+        )
 
         return DetectionResult(
             detected=True,
-            line_count=len(lines),
+            line_count=len(all_lines),
             image_path=image_path,
-            lines=lines,
+            lines=all_lines,
             detection_groups=detection_groups,
             fps=fps,
             crop_paths=crop_paths,
         )
 
     @staticmethod
-    def _save_line_crops(
-        composite: np.ndarray,
-        lines: list[tuple[int, int, int, int]],
+    def _save_group_composites(
+        group_color_comps: dict[int, np.ndarray],
+        detection_groups: list[int],
         output_dir: Path,
         stem: str,
-        padding: int = 80,
-        min_size: int = 120,
     ) -> list[Path]:
-        """Save cropped images around each detected line.
+        """検出グループごとにフルフレーム合成画像を保存する。
 
-        Returns the list of saved crop image paths.
+        各グループの1秒間（exposure_duration_sec）を比較明合成した
+        フルフレーム画像を保存し、パスのリストを返す。
         """
-        h, w = composite.shape[:2]
         paths: list[Path] = []
-        for i, (x1, y1, x2, y2) in enumerate(lines):
-            cy1 = max(0, min(y1, y2) - padding)
-            cy2 = min(h, max(y1, y2) + padding)
-            cx1 = max(0, min(x1, x2) - padding)
-            cx2 = min(w, max(x1, x2) + padding)
-            # Ensure minimum crop size
-            if cy2 - cy1 < min_size:
-                mid = (cy1 + cy2) // 2
-                cy1 = max(0, mid - min_size // 2)
-                cy2 = min(h, cy1 + min_size)
-            if cx2 - cx1 < min_size:
-                mid = (cx1 + cx2) // 2
-                cx1 = max(0, mid - min_size // 2)
-                cx2 = min(w, cx1 + min_size)
-            crop = composite[cy1:cy2, cx1:cx2]
-            line_path = output_dir / f"{stem}_line{i}.png"
-            cv2.imwrite(str(line_path), crop)
-            paths.append(line_path)
+        for gi in detection_groups:
+            group_path = output_dir / f"{stem}_group{gi}.png"
+            cv2.imwrite(str(group_path), group_color_comps[gi])
+            paths.append(group_path)
         return paths

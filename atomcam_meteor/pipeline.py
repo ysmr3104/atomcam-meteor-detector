@@ -511,11 +511,11 @@ class Pipeline:
         )
 
     def _save_detections(self, clip_url: str, result: object) -> None:
-        """Save per-line detection records to the DB."""
+        """検出グループ単位で detection レコードを DB に保存する。"""
         from atomcam_meteor.modules.detector import DetectionResult
 
         assert isinstance(result, DetectionResult)
-        if self._db is None or not result.lines:
+        if self._db is None or not result.detection_groups:
             return
 
         clip = self._db.clips.get_clip(clip_url)
@@ -523,12 +523,13 @@ class Pipeline:
             return
 
         clip_id = clip["id"]
+        # 1グループ = 1レコード（フルフレーム合成画像付き）
+        lines = [(0, 0, 0, 0)] * len(result.detection_groups)
         crop_paths = [str(p) for p in result.crop_paths]
-        # Pad crop_paths if fewer than lines (shouldn't happen, but be safe)
-        while len(crop_paths) < len(result.lines):
+        while len(crop_paths) < len(lines):
             crop_paths.append("")
 
-        self._db.detections.bulk_insert(clip_id, result.lines, crop_paths)
+        self._db.detections.bulk_insert(clip_id, lines, crop_paths)
 
     def _extract_short_clips(
         self, local_path: Path, result: object, output_dir: Path

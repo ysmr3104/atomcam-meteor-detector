@@ -69,6 +69,38 @@ class TestMeteorDetector:
         # The bright line color should be preserved in the composite
         assert saved[:, :, 2].max() > 100  # red channel from (0, 200, 255) BGR
 
+    def test_group_composites_are_full_frame(self, tmp_path):
+        """検出グループごとにフルフレーム合成画像が保存される。"""
+        video_path = tmp_path / "meteor.mp4"
+        h, w = 480, 640
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(str(video_path), fourcc, 15, (w, h))
+
+        for i in range(30):
+            frame = np.zeros((h, w, 3), dtype=np.uint8)
+            if i % 2 == 1:
+                cv2.line(frame, (100, 100), (500, 400), (0, 200, 255), 2)
+            writer.write(frame)
+        writer.release()
+
+        cfg = DetectionConfig(min_line_length=30)
+        det = MeteorDetector(cfg)
+        result = det.detect(video_path, tmp_path / "output")
+
+        assert result.detected is True
+        # crop_paths は検出グループ数と同じ
+        assert len(result.crop_paths) == len(result.detection_groups)
+        for crop_path in result.crop_paths:
+            assert crop_path.exists()
+            img = cv2.imread(str(crop_path), cv2.IMREAD_UNCHANGED)
+            assert img is not None
+            # フルフレームサイズであること（クロップではない）
+            assert img.shape[0] == h
+            assert img.shape[1] == w
+            # 3チャンネルカラー画像であること
+            assert img.ndim == 3
+            assert img.shape[2] == 3
+
     def test_per_group_detection_determines_result(self, tmp_path):
         """グループ単位でHough線が検出された場合のみ detected=True になる。"""
         video_path = tmp_path / "meteor.mp4"

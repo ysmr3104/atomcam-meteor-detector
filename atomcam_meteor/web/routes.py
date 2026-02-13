@@ -135,11 +135,11 @@ def night_page(
                             pass
                 clip["detections"] = db_detections
             else:
-                # Fallback: discover per-line crop images from filesystem
+                # Fallback: discover per-group composite images from filesystem
                 detect_path = Path(clip["detection_image"])
                 stem = detect_path.stem.replace("_detect", "")
                 parent = detect_path.parent
-                for lp in sorted(parent.glob(f"{stem}_line*.png")):
+                for lp in sorted(parent.glob(f"{stem}_group*.png")):
                     try:
                         rel = lp.relative_to(output_dir)
                         clip["detections"].append({
