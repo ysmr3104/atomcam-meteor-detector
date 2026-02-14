@@ -40,6 +40,7 @@ class DetectionConfig(BaseModel):
     clip_margin_sec: float = 0.5
     mask_path: Optional[str] = None
     exclude_bottom_pct: float = 0
+    min_line_brightness: float = 20.0
 
     @field_validator("exclude_bottom_pct")
     @classmethod

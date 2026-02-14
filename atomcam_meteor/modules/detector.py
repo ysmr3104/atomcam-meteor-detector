@@ -83,9 +83,15 @@ class MeteorDetector:
             ) from exc
 
     def _find_lines(
-        self, composite: np.ndarray
+        self,
+        composite: np.ndarray,
+        diff_image: np.ndarray | None = None,
     ) -> list[tuple[int, int, int, int]]:
-        """差分合成画像から Hough 直線を検出して返す。"""
+        """差分合成画像から Hough 直線を検出して返す。
+
+        diff_image が指定され min_line_brightness > 0 の場合、
+        差分画像上のピクセル平均輝度が閾値未満の淡い直線を除外する。
+        """
         img = composite
         h, w = img.shape[:2]
         mask = self._get_mask(h, w)
@@ -105,10 +111,30 @@ class MeteorDetector:
         )
         if raw_lines is None:
             return []
-        return [
+
+        lines = [
             (int(ln[0][0]), int(ln[0][1]), int(ln[0][2]), int(ln[0][3]))
             for ln in raw_lines
         ]
+
+        # 差分画像上の直線輝度フィルタ
+        min_brightness = self._config.min_line_brightness
+        if diff_image is not None and min_brightness > 0:
+            bright_lines: list[tuple[int, int, int, int]] = []
+            for x1, y1, x2, y2 in lines:
+                line_mask = np.zeros((h, w), dtype=np.uint8)
+                cv2.line(line_mask, (x1, y1), (x2, y2), 255, 2)
+                mean_val = cv2.mean(diff_image, mask=line_mask)[0]
+                if mean_val >= min_brightness:
+                    bright_lines.append((x1, y1, x2, y2))
+                else:
+                    logger.debug(
+                        "Filtered dim line (%d,%d)-(%d,%d) brightness=%.1f < %.1f",
+                        x1, y1, x2, y2, mean_val, min_brightness,
+                    )
+            lines = bright_lines
+
+        return lines
 
     def _detect_impl(
         self, cap: cv2.VideoCapture, clip_path: Path, output_dir: Path
@@ -175,7 +201,7 @@ class MeteorDetector:
 
             # グループ単位で直線検出し、検出グループのカラー合成を保持
             if diff_composite is not None:
-                found = self._find_lines(diff_composite)
+                found = self._find_lines(diff_composite, diff_image=diff_composite)
                 if found and group_color_comp is not None:
                     detection_groups.append(group_index)
                     group_color_comps[group_index] = group_color_comp

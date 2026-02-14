@@ -16,6 +16,7 @@ detection:
   clip_margin_sec: 0.5
   mask_path: null
   exclude_bottom_pct: 0           # フレーム下部を除外する割合（0〜50%）
+  min_line_brightness: 20.0       # 差分画像上の最低輝度（0で無効）
 
 schedule:
   start_time: "22:00"

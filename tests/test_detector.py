@@ -245,3 +245,78 @@ class TestMeteorDetector:
         r = DetectionResult(detected=False, line_count=0, image_path=None, lines=[])
         assert r.detection_groups == []
         assert r.fps == 0.0
+
+    def test_min_line_brightness_filters_dim_lines(self, tmp_path):
+        """差分画像上で輝度が低い直線は min_line_brightness で除外される。"""
+        video_path = tmp_path / "dim_line.mp4"
+        h, w = 480, 640
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(str(video_path), fourcc, 15, (w, h))
+
+        # 暗い線（BGR値15）の交互フレームを生成
+        for i in range(30):
+            frame = np.zeros((h, w, 3), dtype=np.uint8)
+            if i % 2 == 1:
+                cv2.line(frame, (100, 100), (500, 400), (15, 15, 15), 2)
+            writer.write(frame)
+        writer.release()
+
+        # Canny閾値を下げて暗い線もHoughLinesPで検出可能にし、
+        # 輝度フィルタのみで除外されることを確認
+        cfg = DetectionConfig(
+            min_line_length=30,
+            canny_threshold1=5,
+            canny_threshold2=10,
+            min_line_brightness=20.0,
+        )
+        det = MeteorDetector(cfg)
+        result = det.detect(video_path, tmp_path / "output")
+        assert result.detected is False
+
+    def test_min_line_brightness_keeps_bright_lines(self, tmp_path):
+        """差分画像上で輝度が高い直線は min_line_brightness で保持される。"""
+        video_path = tmp_path / "bright_line.mp4"
+        h, w = 480, 640
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(str(video_path), fourcc, 15, (w, h))
+
+        # 明るい線（BGR値200）の交互フレームを生成
+        for i in range(30):
+            frame = np.zeros((h, w, 3), dtype=np.uint8)
+            if i % 2 == 1:
+                cv2.line(frame, (100, 100), (500, 400), (200, 200, 200), 2)
+            writer.write(frame)
+        writer.release()
+
+        cfg = DetectionConfig(min_line_length=30, min_line_brightness=20.0)
+        det = MeteorDetector(cfg)
+        result = det.detect(video_path, tmp_path / "output")
+        assert result.detected is True
+        assert result.line_count > 0
+
+    def test_min_line_brightness_zero_disables_filter(self, tmp_path):
+        """min_line_brightness=0 ではフィルタが無効になり暗い線も検出される。"""
+        video_path = tmp_path / "dim_line_no_filter.mp4"
+        h, w = 480, 640
+        fourcc = cv2.VideoWriter_fourcc(*"mp4v")
+        writer = cv2.VideoWriter(str(video_path), fourcc, 15, (w, h))
+
+        # 暗い線（BGR値15）の交互フレームを生成
+        for i in range(30):
+            frame = np.zeros((h, w, 3), dtype=np.uint8)
+            if i % 2 == 1:
+                cv2.line(frame, (100, 100), (500, 400), (15, 15, 15), 2)
+            writer.write(frame)
+        writer.release()
+
+        # Canny閾値を下げて暗い線もHoughLinesPで検出可能にし、
+        # 輝度フィルタ=0（無効）なので検出されることを確認
+        cfg = DetectionConfig(
+            min_line_length=30,
+            canny_threshold1=5,
+            canny_threshold2=10,
+            min_line_brightness=0.0,
+        )
+        det = MeteorDetector(cfg)
+        result = det.detect(video_path, tmp_path / "output")
+        assert result.detected is True
