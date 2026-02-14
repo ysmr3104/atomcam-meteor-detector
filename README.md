@@ -75,6 +75,10 @@ atomcam serve -c config/settings.yaml
 - **除外/復帰**: 検出線単位で included/excluded を切り替え
 - **再合成**: excluded を除外して合成画像・結合動画を再作成
 
+| ナイト一覧 | ナイト詳細 |
+|:---:|:---:|
+| ![ナイト一覧](docs/images/screenshot-nights.jpeg) | ![ナイト詳細](docs/images/screenshot-night-detail.jpeg) |
+
 ## 参考
 
 流星検出アルゴリズム（フレーム差分 → Canny エッジ検出 → HoughLinesP 直線検出）およびその検出パラメータは、kin-hasegawa さんの [meteor-detect](https://github.com/kin-hasegawa/meteor-detect) を強く参考にしています。
