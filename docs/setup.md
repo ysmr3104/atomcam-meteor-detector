@@ -1,8 +1,96 @@
-# Raspberry Pi セットアップガイド
+# セットアップガイド
 
-ATOM Cam 流星検出ツールを Raspberry Pi 上で動作させるための手順書。
+## 共通要件
 
-## 推奨ハードウェア
+- Python 3.10+
+- ffmpeg（動画結合用）
+- ATOM Cam（HTTP アクセス可能な状態）
+
+---
+
+## PC 環境でのセットアップ
+
+macOS / Linux / Windows（WSL）での開発・実行環境の構築手順。
+
+### インストール
+
+```bash
+git clone https://github.com/ysmr3104/atomcam-meteor-detector.git
+cd atomcam-meteor-detector
+
+# uv を使用
+uv sync
+
+# pip を使用する場合
+pip install -e .
+
+# 開発用（pytest, respx 等を追加）
+uv sync --group dev
+```
+
+### 設定
+
+設定ファイルをコピーして編集:
+
+```bash
+cp config/settings.example.yaml config/settings.yaml
+```
+
+主な変更点：
+
+- `camera.host`: ATOM Cam のホスト名に合わせて変更（例: `atomcam2.local`）
+
+```yaml
+camera:
+  host: "atomcam2.local"
+```
+
+> **補足**: `http_user` / `http_password` はデフォルトで無効（認証なし）です。ATOM Cam 2 はそのままで動作します。認証が必要な環境の場合のみ設定してください。
+
+詳細は `config/settings.example.yaml` 内のコメントを参照してください。
+
+### 使い方
+
+#### CLI
+
+```bash
+# パイプライン実行
+atomcam run -c config/settings.yaml -v
+
+# 特定日付を指定
+atomcam run -c config/settings.yaml --date 20250101
+
+# ドライラン (実際のDL/処理なし)
+atomcam run -c config/settings.yaml --dry-run -vv
+
+# 検出ステータス確認
+atomcam status -c config/settings.yaml
+atomcam status -c config/settings.yaml --date 20250101 --json
+
+# 設定検証
+atomcam config -c config/settings.yaml --validate
+```
+
+#### Web ダッシュボード
+
+```bash
+atomcam serve -c config/settings.yaml
+```
+
+ブラウザで `http://localhost:8080` にアクセス。
+
+- **ナイト一覧**: 日付ごとの検出数と合成画像サムネイル
+- **ナイト詳細**: 合成画像、結合動画、検出クリップのグリッド表示
+- **除外/復帰**: 検出線単位で included/excluded を切り替え
+- **再合成**: excluded を除外して合成画像・結合動画を再作成
+
+---
+
+## Raspberry Pi 環境でのセットアップ
+
+ATOM Cam 流星検出ツールを Raspberry Pi 上で常時稼働させるための手順。
+
+### 推奨ハードウェア
 
 | 項目 | 推奨 |
 |---|---|
@@ -12,11 +100,11 @@ ATOM Cam 流星検出ツールを Raspberry Pi 上で動作させるための手
 | 電源 | USB-C 5V/3A 公式電源アダプタ |
 | ネットワーク | 有線 LAN 推奨（ATOM Cam からの動画ダウンロードが安定する） |
 
-## 推奨 OS
+### 推奨 OS
 
 **Raspberry Pi OS Lite (64-bit, Bookworm)** を推奨します。
 
-### 選定理由
+#### 選定理由
 
 - Debian 12 ベースで Python 3.11 が標準搭載（本ツールは Python 3.10+ が必要）
 - 公式 OS のため Raspberry Pi 4B とのハードウェア互換性が最も高い
@@ -25,7 +113,7 @@ ATOM Cam 流星検出ツールを Raspberry Pi 上で動作させるための手
 - OpenCV、ffmpeg などの依存パッケージが `apt` で容易にインストール可能
 - ヘッドレス・cron 駆動の運用に最適
 
-### ダウンロード
+#### ダウンロード
 
 公式サイトからダウンロードしてください：
 
@@ -35,14 +123,14 @@ ATOM Cam 流星検出ツールを Raspberry Pi 上で動作させるための手
 - **OS イメージ直接ダウンロード**: https://www.raspberrypi.com/software/operating-systems/
   - 「Raspberry Pi OS (64-bit) Lite」をダウンロード
 
-## OS イメージの書き込み
+### OS イメージの書き込み
 
-### 準備するもの
+#### 準備するもの
 
 - microSD カード（32GB 以上）
 - microSD カードリーダー（PC に内蔵されていない場合）
 
-### 手順（Raspberry Pi Imager を使用）
+#### Raspberry Pi Imager を使用する場合
 
 1. **Raspberry Pi Imager のインストール**
    - https://www.raspberrypi.com/software/ から作業用 PC の OS に合ったインストーラをダウンロード
@@ -74,9 +162,7 @@ ATOM Cam 流星検出ツールを Raspberry Pi 上で動作させるための手
    - 「はい」を押して書き込みを開始
    - 完了したら microSD カードを PC から取り出す
 
-### 手順（手動で書き込む場合）
-
-Raspberry Pi Imager を使わない場合は、以下の手順で書き込みます。
+#### 手動で書き込む場合
 
 1. https://www.raspberrypi.com/software/operating-systems/ から「Raspberry Pi OS Lite (64-bit)」の `.img.xz` ファイルをダウンロード
 2. 書き込みツールで microSD カードに書き込む:
@@ -88,7 +174,7 @@ Raspberry Pi Imager を使わない場合は、以下の手順で書き込みま
    touch /Volumes/bootfs/ssh   # macOS の場合
    ```
 
-## Raspberry Pi の起動と初期接続
+### Raspberry Pi の起動と初期接続
 
 1. 書き込み済みの microSD カードを Raspberry Pi に挿入
 2. LAN ケーブルを接続（推奨）
@@ -103,7 +189,7 @@ Raspberry Pi Imager を使わない場合は、以下の手順で書き込みま
    ssh <ユーザー名>@<IPアドレス>
    ```
 
-## OS の初期設定
+### OS の初期設定
 
 SSH 接続後、以下のコマンドで OS を最新の状態にします。
 
@@ -117,9 +203,9 @@ sudo apt update && sudo apt upgrade -y
 sudo reboot
 ```
 
-## 依存パッケージのインストール
+### 依存パッケージのインストール
 
-### システムパッケージ
+#### システムパッケージ
 
 OpenCV と ffmpeg に必要なシステムライブラリをインストールします。
 
@@ -132,7 +218,7 @@ sudo apt install -y \
   python3-venv
 ```
 
-### uv（Python パッケージマネージャ）のインストール
+#### uv（Python パッケージマネージャ）のインストール
 
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -150,9 +236,9 @@ source ~/.local/bin/env
 uv --version
 ```
 
-## 本ツールのセットアップ
+### 本ツールのセットアップ
 
-### リポジトリのクローン
+#### リポジトリのクローン
 
 ```bash
 cd ~
@@ -160,13 +246,13 @@ git clone https://github.com/ysmr3104/atomcam-meteor-detector.git
 cd atomcam-meteor-detector
 ```
 
-### Python 依存パッケージのインストール
+#### Python 依存パッケージのインストール
 
 ```bash
 uv sync
 ```
 
-### 設定ファイルの作成
+#### 設定ファイルの作成
 
 ```bash
 cp config/settings.example.yaml config/settings.yaml
@@ -185,17 +271,17 @@ camera:
 
 > **補足**: `http_user` / `http_password` はデフォルトで無効（認証なし）です。ATOM Cam 2 はそのままで動作します。認証が必要な環境の場合のみ設定してください。
 
-### 動作確認
+#### 動作確認
 
 ```bash
 uv run atomcam --help
 ```
 
-## Web ダッシュボードの自動起動（systemd）
+### Web ダッシュボードの自動起動（systemd）
 
 Web ダッシュボードを OS 起動時に自動で立ち上げるには、systemd のサービスを作成します。
 
-### サービスファイルの作成
+#### サービスファイルの作成
 
 ```bash
 sudo nano /etc/systemd/system/atomcam-web.service
@@ -220,7 +306,7 @@ RestartSec=5
 WantedBy=multi-user.target
 ```
 
-### サービスの有効化と起動
+#### サービスの有効化と起動
 
 ```bash
 sudo systemctl daemon-reload
@@ -228,7 +314,7 @@ sudo systemctl enable atomcam-web
 sudo systemctl start atomcam-web
 ```
 
-### 状態確認
+#### 状態確認
 
 ```bash
 sudo systemctl status atomcam-web
@@ -236,11 +322,11 @@ sudo systemctl status atomcam-web
 
 ブラウザから `http://<ホスト名>.local:8080/` にアクセスして表示を確認してください。
 
-## cron による定期実行
+### cron による定期実行
 
 パイプラインを毎朝自動実行し、前夜の録画から流星を検出します。
 
-### cron の設定
+#### cron の設定
 
 ```bash
 crontab -e
@@ -255,8 +341,34 @@ crontab -e
 - **実行時刻**: 毎日 6:00（前夜 22:00〜翌 5:59 の録画がすべて揃った後）
 - **ログ出力**: `~/atomcam/logs/pipeline.log` に追記
 
-### ログディレクトリの作成
+#### ログディレクトリの作成
 
 ```bash
 mkdir -p ~/atomcam/logs
 ```
+
+### 外部からのアクセス（Tailscale）
+
+Web ダッシュボードは LAN 内からのみアクセス可能ですが、[Tailscale](https://tailscale.com/) を使うことで外出先のスマホや PC からも安全にアクセスできます。
+
+#### Raspberry Pi 側の設定
+
+```bash
+# Tailscale をインストール
+curl -fsSL https://tailscale.com/install.sh | sh
+
+# 起動・認証（表示される URL をブラウザで開いてログイン）
+sudo tailscale up
+
+# Tailscale IP を確認
+tailscale ip -4
+# 例: 100.89.209.44
+```
+
+#### スマホ / PC 側の設定
+
+1. Tailscale アプリをインストール（[iOS](https://apps.apple.com/app/tailscale/id1470499037) / [Android](https://play.google.com/store/apps/details?id=com.tailscale.ipn) / [macOS・Windows](https://tailscale.com/download)）
+2. Raspberry Pi と同じアカウントでログイン
+3. ブラウザで `http://<Tailscale IP>:8080/` にアクセス
+
+Tailscale は systemd サービスとして自動起動するため、Raspberry Pi の再起動後も設定は維持されます。

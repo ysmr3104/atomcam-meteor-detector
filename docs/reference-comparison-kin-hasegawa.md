@@ -1,6 +1,19 @@
 # kin-hasegawa さんの meteor-detect との比較
 
-本プロジェクト（atomcam-meteor-detector）の流星検出ロジックは、kin-hasegawa さんの [meteor-detect](https://github.com/kin-hasegawa/meteor-detect) を強く参考にしています。このドキュメントでは、参考にした部分とオリジナル部分を明確にします。
+本プロジェクト（atomcam-meteor-detector）の流星検出ロジックは、kin-hasegawa さんの [meteor-detect](https://github.com/kin-hasegawa/meteor-detect) を強く参考にしています。このドキュメントでは、両プロジェクトの設計思想の違いと、参考にした部分を整理します。
+
+---
+
+## 設計思想の違い
+
+| 観点 | kin-hasegawa | 本プロジェクト |
+|------|-------------|--------------|
+| 主な用途 | リアルタイムストリーミング検出（RTSP/YouTube） | cron 駆動のバッチ処理 + Web ダッシュボード |
+| 入力ソース | RTSP、YouTube Live、MP4 ファイル | ATOM Cam の HTTP ファイルサーバー |
+| 出力管理 | ファイルシステム上に直接保存 | SQLite DB で状態管理 |
+| パラメータ | コマンドライン引数 + ハードコード | YAML + DB + Web UI で変更可能 |
+| 構成 | 単一スクリプト（約 726 行） | モジュール分割（Pipeline, Detector, Compositor, etc.） |
+| 実行環境 | デスクトップ PC / Mac | Raspberry Pi（systemd + cron） |
 
 ---
 
@@ -72,75 +85,6 @@
 | カスタムマスク | `--mask` で画像ファイル指定 | `mask_path` 設定でファイル指定 |
 | タイムスタンプ除外 | `cv2.rectangle` で座標固定指定 | `exclude_bottom_pct` で下部 N% を除外 |
 | マスク適用方法 | `cv2.bitwise_or` で差分前に適用 | `cv2.bitwise_and` で差分合成後に適用 |
-
----
-
-## 本プロジェクトのオリジナル部分
-
-以下は kin-hasegawa さんのプログラムには存在しない、本プロジェクト独自の設計・実装です。
-
-### アーキテクチャ・設計
-
-| 機能 | 説明 |
-|------|------|
-| Pipeline クラス | 依存性注入パターンによるモジュール統括。テスト時にモック差し替え可能 |
-| 状態管理（SQLite） | WAL モードの SQLite で CLI パイプラインと Web UI が並行アクセス |
-| StateDB ファサード | `ClipRepository` + `NightOutputRepository` を統合するファサードパターン |
-| Pydantic 設定モデル | frozen（イミュータブル）な Pydantic モデルで YAML 設定を型安全に管理 |
-| DB ベースの設定上書き | YAML 設定を DB 値で動的に上書きする仕組み |
-
-### Web UI・ユーザー機能
-
-| 機能 | 説明 |
-|------|------|
-| FastAPI ダッシュボード | クリップ一覧、比較明合成画像、結合動画の閲覧・管理 |
-| クリップ除外/含める | 検出線単位での除外トグルと合成画像・結合動画のリビルド |
-| 検出パラメータ変更 | Web UI から検出パラメータを動的に変更可能 |
-| 再検出 | ダウンロード済みクリップからの再検出機能 |
-
-### スケジューリング・自動化
-
-| 機能 | 説明 |
-|------|------|
-| 天文薄明スケジュール | 太陽高度 -18° ベースの観測開始・終了時刻の自動計算 |
-| FileLock 排他制御 | cron 実行時の重複起動防止 |
-| フックシステム | `on_detection`, `on_night_complete`, `on_error` イベント通知 |
-
-### 検出精度向上
-
-| 機能 | 説明 |
-|------|------|
-| 輝度フィルタ | `min_line_brightness` による差分画像上の平均輝度チェック |
-| グループ単位の合成画像保存 | 検出グループごとにフルフレーム合成画像を保存し、細粒度の分析に対応 |
-| クリップ抽出 | ffmpeg で検出グループの時間範囲のみを切り出し（前後マージン付き） |
-
-### 動画取得・結合
-
-| 機能 | 説明 |
-|------|------|
-| HTTP ダウンロード | httpx ストリーミング + リトライ（kin-hasegawa は RTSP/FTP） |
-| ffmpeg concat demuxer | `-c copy` による再エンコード不要の高速結合 |
-
-### 品質・テスト
-
-| 機能 | 説明 |
-|------|------|
-| テスト基盤 | pytest + respx、インメモリ SQLite、カバレッジ計測 |
-| 型安全 | mypy strict モード、全ファイルで `from __future__ import annotations` |
-| リンター | Ruff（E/F/I/UP/B/SIM ルール） |
-
----
-
-## 両プロジェクトの設計思想の違い
-
-| 観点 | kin-hasegawa | 本プロジェクト |
-|------|-------------|--------------|
-| 主な用途 | リアルタイムストリーミング検出（RTSP/YouTube） | cron 駆動のバッチ処理 + Web ダッシュボード |
-| 入力ソース | RTSP、YouTube Live、MP4 ファイル | ATOM Cam の HTTP ファイルサーバー |
-| 出力管理 | ファイルシステム上に直接保存 | SQLite DB で状態管理 |
-| パラメータ | コマンドライン引数 + ハードコード | YAML + DB + Web UI で変更可能 |
-| 構成 | 単一スクリプト（約 726 行） | モジュール分割（Pipeline, Detector, Compositor, etc.） |
-| 実行環境 | デスクトップ PC / Mac | Raspberry Pi（systemd + cron） |
 
 ---
 
