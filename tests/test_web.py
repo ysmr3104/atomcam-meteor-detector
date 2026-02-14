@@ -329,3 +329,49 @@ class TestSettingsAPI:
         assert "end_time" in data
         assert len(data["start_time"]) == 5
         assert len(data["end_time"]) == 5
+
+
+class TestDetectionSettingsAPI:
+    def test_get_detection_defaults(self, client):
+        """デフォルトの検出設定が返ること"""
+        resp = client.get("/api/settings/detection")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["min_line_length"] == "30"
+        assert data["canny_threshold1"] == "100"
+        assert data["canny_threshold2"] == "200"
+        assert data["hough_threshold"] == "25"
+        assert data["max_line_gap"] == "5"
+        assert data["min_line_brightness"] == "20.0"
+        assert data["exclude_bottom_pct"] == "0"
+
+    def test_put_and_get_detection(self, client):
+        """検出設定の保存と取得"""
+        resp = client.put("/api/settings/detection", json={
+            "min_line_length": "50",
+            "canny_threshold1": "80",
+            "hough_threshold": "30",
+            "min_line_brightness": "25.5",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "saved"
+
+        resp = client.get("/api/settings/detection")
+        data = resp.json()
+        assert data["min_line_length"] == "50"
+        assert data["canny_threshold1"] == "80"
+        assert data["hough_threshold"] == "30"
+        assert data["min_line_brightness"] == "25.5"
+        # 未設定の値はデフォルト
+        assert data["canny_threshold2"] == "200"
+        assert data["max_line_gap"] == "5"
+
+    def test_put_empty_body(self, client):
+        """空のボディで 400 が返ること"""
+        resp = client.put("/api/settings/detection", json={})
+        assert resp.status_code == 400
+
+    def test_put_invalid_keys_only(self, client):
+        """無効なキーのみのボディで 400 が返ること"""
+        resp = client.put("/api/settings/detection", json={"invalid_key": "100"})
+        assert resp.status_code == 400

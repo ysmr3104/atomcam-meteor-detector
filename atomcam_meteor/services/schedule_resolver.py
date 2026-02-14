@@ -4,8 +4,9 @@ from __future__ import annotations
 
 import logging
 from datetime import date, datetime
+from typing import Any
 
-from atomcam_meteor.config import ScheduleConfig
+from atomcam_meteor.config import DetectionConfig, ScheduleConfig
 from atomcam_meteor.services.prefectures import get_coordinates
 from atomcam_meteor.services.twilight import resolve_end_time, resolve_start_time
 
@@ -130,3 +131,54 @@ def _resolve_location(db_settings: dict[str, str]) -> tuple[float, float]:
             "都道府県 %r が見つかりません。東京都にフォールバック", prefecture,
         )
         return get_coordinates(_DEFAULT_PREFECTURE)
+
+
+# ── 検出パラメータ解決 ──────────────────────────────────────────────
+
+_DETECTION_KEYS: list[str] = [
+    "min_line_length",
+    "canny_threshold1",
+    "canny_threshold2",
+    "hough_threshold",
+    "max_line_gap",
+    "min_line_brightness",
+    "exclude_bottom_pct",
+]
+
+
+def resolve_detection_config(
+    settings: SettingsRepository | None,
+    yaml_detection: DetectionConfig,
+) -> DetectionConfig:
+    """DB設定でDetectionConfigをオーバーライドする。DB値がなければYAML値を使用。"""
+    if settings is None:
+        return yaml_detection
+    db_settings = settings.get_all()
+    overrides: dict[str, Any] = {}
+    for key in _DETECTION_KEYS:
+        db_key = f"detection.{key}"
+        if db_key in db_settings:
+            val = db_settings[db_key]
+            annotation = DetectionConfig.model_fields[key].annotation
+            if annotation is int:
+                overrides[key] = int(val)
+            else:
+                overrides[key] = float(val)
+    if not overrides:
+        return yaml_detection
+    base = yaml_detection.model_dump()
+    base.update(overrides)
+    return DetectionConfig.model_validate(base)
+
+
+def get_current_detection_settings(
+    settings: SettingsRepository | None,
+    yaml_detection: DetectionConfig,
+) -> dict[str, str]:
+    """現在の検出設定をAPI応答用に返す。"""
+    result: dict[str, str] = {}
+    db_settings = settings.get_all() if settings else {}
+    for key in _DETECTION_KEYS:
+        db_key = f"detection.{key}"
+        result[key] = db_settings.get(db_key, str(getattr(yaml_detection, key)))
+    return result

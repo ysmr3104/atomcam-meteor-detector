@@ -88,6 +88,53 @@
             </fieldset>
         </form>
 
+        <details id="detectionSettingsSection" style="margin-top:1rem;">
+            <summary style="cursor:pointer; font-weight:bold;">検出パラメータ</summary>
+            <form id="detectionSettingsForm" onsubmit="return false;" style="margin-top:0.5rem;">
+                <div class="grid">
+                    <label>
+                        最小直線長
+                        <input type="number" id="det-min-line-length" min="1" max="500" step="1">
+                        <small>min_line_length</small>
+                    </label>
+                    <label>
+                        Hough投票閾値
+                        <input type="number" id="det-hough-threshold" min="1" max="500" step="1">
+                        <small>hough_threshold</small>
+                    </label>
+                </div>
+                <div class="grid">
+                    <label>
+                        Canny下限閾値
+                        <input type="number" id="det-canny-threshold1" min="1" max="500" step="1">
+                        <small>canny_threshold1</small>
+                    </label>
+                    <label>
+                        Canny上限閾値
+                        <input type="number" id="det-canny-threshold2" min="1" max="500" step="1">
+                        <small>canny_threshold2</small>
+                    </label>
+                </div>
+                <div class="grid">
+                    <label>
+                        最大ギャップ
+                        <input type="number" id="det-max-line-gap" min="0" max="100" step="1">
+                        <small>max_line_gap</small>
+                    </label>
+                    <label>
+                        最低輝度
+                        <input type="number" id="det-min-line-brightness" min="0" max="255" step="0.1">
+                        <small>min_line_brightness</small>
+                    </label>
+                </div>
+                <label>
+                    下部除外率（%）
+                    <input type="number" id="det-exclude-bottom-pct" min="0" max="50" step="0.1">
+                    <small>exclude_bottom_pct（0〜50）</small>
+                </label>
+            </form>
+        </details>
+
         <footer>
             <button class="secondary" onclick="document.getElementById('scheduleSettingsDialog').close()">キャンセル</button>
             <button onclick="saveSettings()">保存</button>
@@ -135,11 +182,14 @@ function openSettings() {
                 opt.textContent = p.name;
                 sel.appendChild(opt);
             });
-            // 現在の設定をロード
-            return fetch('/api/settings/schedule');
+            // スケジュール設定と検出設定を並行ロード
+            return Promise.all([
+                fetch('/api/settings/schedule').then(function(r) { return r.json(); }),
+                fetch('/api/settings/detection').then(function(r) { return r.json(); }),
+            ]);
         })
-        .then(function(r) { return r.json(); })
-        .then(function(s) {
+        .then(function(results) {
+            var s = results[0];
             document.getElementById('startMode').value = s.start_mode || 'fixed';
             document.getElementById('startTime').value = s.start_time || '22:00';
             document.getElementById('startOffset').value = s.start_offset_minutes || '0';
@@ -159,12 +209,21 @@ function openSettings() {
             toggleStartFields();
             toggleEndFields();
             toggleLocationFields();
+
+            var d = results[1];
+            document.getElementById('det-min-line-length').value = d.min_line_length || '30';
+            document.getElementById('det-canny-threshold1').value = d.canny_threshold1 || '100';
+            document.getElementById('det-canny-threshold2').value = d.canny_threshold2 || '200';
+            document.getElementById('det-hough-threshold').value = d.hough_threshold || '25';
+            document.getElementById('det-max-line-gap').value = d.max_line_gap || '5';
+            document.getElementById('det-min-line-brightness').value = d.min_line_brightness || '20.0';
+            document.getElementById('det-exclude-bottom-pct').value = d.exclude_bottom_pct || '0';
         });
     document.getElementById('previewResult').style.display = 'none';
 }
 
 function saveSettings() {
-    var data = {
+    var scheduleData = {
         start_mode: document.getElementById('startMode').value,
         start_time: document.getElementById('startTime').value,
         start_offset_minutes: document.getElementById('startOffset').value,
@@ -176,12 +235,27 @@ function saveSettings() {
         latitude: document.getElementById('latitude').value || '',
         longitude: document.getElementById('longitude').value || '',
     };
-    fetch('/api/settings/schedule', {
-        method: 'PUT',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify(data),
-    })
-    .then(function(r) { return r.json(); })
+    var detectionData = {
+        min_line_length: document.getElementById('det-min-line-length').value,
+        canny_threshold1: document.getElementById('det-canny-threshold1').value,
+        canny_threshold2: document.getElementById('det-canny-threshold2').value,
+        hough_threshold: document.getElementById('det-hough-threshold').value,
+        max_line_gap: document.getElementById('det-max-line-gap').value,
+        min_line_brightness: document.getElementById('det-min-line-brightness').value,
+        exclude_bottom_pct: document.getElementById('det-exclude-bottom-pct').value,
+    };
+    Promise.all([
+        fetch('/api/settings/schedule', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(scheduleData),
+        }),
+        fetch('/api/settings/detection', {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(detectionData),
+        }),
+    ])
     .then(function() {
         document.getElementById('scheduleSettingsDialog').close();
     });

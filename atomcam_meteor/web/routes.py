@@ -14,7 +14,12 @@ from fastapi.responses import HTMLResponse, JSONResponse
 from atomcam_meteor.config import AppConfig
 from atomcam_meteor.services.db import ClipRepository, StateDB
 from atomcam_meteor.services.prefectures import PREFECTURES
-from atomcam_meteor.services.schedule_resolver import get_current_settings, resolve_schedule
+from atomcam_meteor.services.schedule_resolver import (
+    _DETECTION_KEYS,
+    get_current_detection_settings,
+    get_current_settings,
+    resolve_schedule,
+)
 from atomcam_meteor.web.dependencies import get_config, get_db
 
 _JST = timezone(timedelta(hours=9))
@@ -403,6 +408,31 @@ def api_put_schedule_settings(
         raise HTTPException(status_code=400, detail="保存する設定がありません")
     db.settings.set_many(items)
     return {"status": "saved", "keys": list(items.keys())}
+
+
+@router.get("/api/settings/detection")
+def api_get_detection_settings(
+    db: StateDB = Depends(get_db),
+    config: AppConfig = Depends(get_config),
+) -> dict:
+    """現在の検出設定を取得する。"""
+    return get_current_detection_settings(db.settings, config.detection)
+
+
+@router.put("/api/settings/detection")
+def api_put_detection_settings(
+    body: dict,
+    db: StateDB = Depends(get_db),
+) -> dict:
+    """検出設定を DB に保存する。"""
+    valid_keys = set(_DETECTION_KEYS)
+    items: dict[str, str] = {
+        f"detection.{k}": str(v) for k, v in body.items() if k in valid_keys
+    }
+    if not items:
+        raise HTTPException(status_code=400, detail="有効なフィールドがありません")
+    db.settings.set_many(items)
+    return {"status": "saved"}
 
 
 @router.get("/api/settings/prefectures")

@@ -25,7 +25,10 @@ from atomcam_meteor.modules.detector import MeteorDetector
 from atomcam_meteor.modules.downloader import Downloader
 from atomcam_meteor.modules.extractor import ClipExtractor
 from atomcam_meteor.services.db import ClipStatus, StateDB
-from atomcam_meteor.services.schedule_resolver import resolve_schedule
+from atomcam_meteor.services.schedule_resolver import (
+    resolve_detection_config,
+    resolve_schedule,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -80,6 +83,15 @@ class Pipeline:
 
         download_dir = self._config.paths.resolve_download_dir()
         output_dir = self._config.paths.resolve_output_dir() / date_str
+
+        # 検出設定の解決（DB → YAML）
+        resolved_detection = resolve_detection_config(
+            self._db.settings if self._db else None,
+            self._config.detection,
+        )
+        if resolved_detection is not self._config.detection:
+            self._detector = MeteorDetector(resolved_detection)
+            self._extractor = ClipExtractor(resolved_detection)
 
         # スケジュール解決（DB → YAML → 薄明計算）
         start_time, end_time = resolve_schedule(
@@ -265,6 +277,15 @@ class Pipeline:
 
         download_dir = self._config.paths.resolve_download_dir()
         output_dir = self._config.paths.resolve_output_dir() / date_str
+
+        # 検出設定の解決（DB → YAML）
+        resolved_detection = resolve_detection_config(
+            self._db.settings if self._db else None,
+            self._config.detection,
+        )
+        if resolved_detection is not self._config.detection:
+            self._detector = MeteorDetector(resolved_detection)
+            self._extractor = ClipExtractor(resolved_detection)
 
         # スケジュール解決（DB → YAML → 薄明計算）
         start_time, end_time = resolve_schedule(
