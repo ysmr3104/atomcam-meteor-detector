@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+from datetime import datetime
 from typing import Any
 
 from atomcam_meteor.config import DetectionConfig, ScheduleConfig
@@ -24,6 +24,9 @@ _DEFAULT_END_MODE = "fixed"
 _DEFAULT_LOCATION_MODE = "preset"
 _DEFAULT_PREFECTURE = "東京都"
 _DEFAULT_OFFSET = "0"
+_DEFAULT_INTERVAL_MINUTES = "15"
+_DEFAULT_REBOOT_ENABLED = "false"
+_DEFAULT_REBOOT_TIME = "12:00"
 
 
 def resolve_schedule(
@@ -106,6 +109,53 @@ def get_current_settings(
         "prefecture": db_settings.get("schedule.prefecture", _DEFAULT_PREFECTURE),
         "latitude": db_settings.get("schedule.latitude", ""),
         "longitude": db_settings.get("schedule.longitude", ""),
+        "interval_minutes": db_settings.get(
+            "schedule.interval_minutes",
+            str(yaml_schedule.interval_minutes),
+        ),
+    }
+
+
+def resolve_interval_minutes(
+    settings: SettingsRepository | None,
+    yaml_schedule: ScheduleConfig,
+) -> int:
+    """パイプライン実行間隔（分）を解決する。DB → YAML フォールバック。"""
+    if settings is not None:
+        db_val = settings.get("schedule.interval_minutes")
+        if db_val is not None:
+            try:
+                return max(0, int(db_val))
+            except ValueError:
+                pass
+    return yaml_schedule.interval_minutes
+
+
+def resolve_reboot_settings(
+    settings: SettingsRepository | None,
+) -> tuple[bool, str]:
+    """リブート設定を解決する。(有効/無効, 時刻) のタプルを返す。"""
+    db_settings: dict[str, str] = {}
+    if settings is not None:
+        db_settings = settings.get_all()
+    enabled_str = db_settings.get("system.reboot_enabled", _DEFAULT_REBOOT_ENABLED)
+    reboot_time = db_settings.get("system.reboot_time", _DEFAULT_REBOOT_TIME)
+    enabled = enabled_str.lower() in ("true", "1", "yes")
+    return enabled, reboot_time
+
+
+def get_current_system_settings(
+    settings: SettingsRepository | None,
+) -> dict[str, str]:
+    """現在のシステム設定をフラットな辞書で返す（API レスポンス用）。"""
+    db_settings: dict[str, str] = {}
+    if settings is not None:
+        db_settings = settings.get_all()
+    return {
+        "reboot_enabled": db_settings.get(
+            "system.reboot_enabled", _DEFAULT_REBOOT_ENABLED
+        ),
+        "reboot_time": db_settings.get("system.reboot_time", _DEFAULT_REBOOT_TIME),
     }
 
 

@@ -331,6 +331,67 @@ class TestSettingsAPI:
         assert len(data["end_time"]) == 5
 
 
+class TestSchedulerAPI:
+    def test_scheduler_status(self, client):
+        """スケジューラのステータスが取得できること"""
+        resp = client.get("/api/scheduler/status")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "enabled" in data
+        assert "running" in data
+        assert "interval_minutes" in data
+        assert "pipeline_running" in data
+        assert "reboot_enabled" in data
+
+    def test_interval_minutes_in_schedule_settings(self, client):
+        """interval_minutes がスケジュール設定に含まれること"""
+        resp = client.get("/api/settings/schedule")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "interval_minutes" in data
+
+    def test_put_interval_minutes(self, client):
+        """interval_minutes の保存と取得"""
+        resp = client.put("/api/settings/schedule", json={
+            "interval_minutes": "30",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "saved"
+
+        resp = client.get("/api/settings/schedule")
+        data = resp.json()
+        assert data["interval_minutes"] == "30"
+
+
+class TestSystemSettingsAPI:
+    def test_get_system_defaults(self, client):
+        """デフォルトのシステム設定が返ること"""
+        resp = client.get("/api/settings/system")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["reboot_enabled"] == "false"
+        assert data["reboot_time"] == "12:00"
+
+    def test_put_and_get_system(self, client):
+        """システム設定の保存と取得"""
+        resp = client.put("/api/settings/system", json={
+            "reboot_enabled": "true",
+            "reboot_time": "14:00",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "saved"
+
+        resp = client.get("/api/settings/system")
+        data = resp.json()
+        assert data["reboot_enabled"] == "true"
+        assert data["reboot_time"] == "14:00"
+
+    def test_put_empty_body(self, client):
+        """空のボディで 400 が返ること"""
+        resp = client.put("/api/settings/system", json={})
+        assert resp.status_code == 400
+
+
 class TestDetectionSettingsAPI:
     def test_get_detection_defaults(self, client):
         """デフォルトの検出設定が返ること"""

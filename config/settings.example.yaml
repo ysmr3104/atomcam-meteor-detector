@@ -21,6 +21,7 @@ detection:
 schedule:
   start_time: "22:00"             # デフォルトの開始時刻（固定モード用）
   end_time: "06:00"               # デフォルトの終了時刻（固定モード用）
+  interval_minutes: 15            # パイプライン実行間隔（分）。0でスケジューラ無効
   # 天文薄明ベースのスケジュールは Web UI の設定モーダルから構成可能。
   # Web UI で設定した値は SQLite DB に保存され、YAML 値より優先される。
   # モード: fixed（固定時刻）/ twilight（天文薄明自動）/ twilight_offset（薄明＋オフセット）

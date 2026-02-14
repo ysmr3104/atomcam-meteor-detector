@@ -18,8 +18,10 @@ from atomcam_meteor.services.schedule_resolver import (
     _DETECTION_KEYS,
     get_current_detection_settings,
     get_current_settings,
+    get_current_system_settings,
     resolve_schedule,
 )
+from atomcam_meteor.services.scheduler import PipelineScheduler
 from atomcam_meteor.web.dependencies import get_config, get_db
 
 _JST = timezone(timedelta(hours=9))
@@ -399,6 +401,7 @@ def api_put_schedule_settings(
         "prefecture": "schedule.prefecture",
         "latitude": "schedule.latitude",
         "longitude": "schedule.longitude",
+        "interval_minutes": "schedule.interval_minutes",
     }
     items: dict[str, str] = {}
     for api_key, db_key in key_map.items():
@@ -464,6 +467,41 @@ def api_preview_schedule(
         "start_time": start_time,
         "end_time": end_time,
     }
+
+
+@router.get("/api/scheduler/status")
+def api_scheduler_status(request: Request) -> dict:
+    """スケジューラの現在状態を返す。"""
+    scheduler: PipelineScheduler = request.app.state.scheduler
+    return scheduler.status.to_dict()
+
+
+@router.get("/api/settings/system")
+def api_get_system_settings(
+    db: StateDB = Depends(get_db),
+) -> dict:
+    """現在のシステム設定を取得する。"""
+    return get_current_system_settings(db.settings)
+
+
+@router.put("/api/settings/system")
+def api_put_system_settings(
+    body: dict,
+    db: StateDB = Depends(get_db),
+) -> dict:
+    """システム設定を DB に保存する。"""
+    key_map = {
+        "reboot_enabled": "system.reboot_enabled",
+        "reboot_time": "system.reboot_time",
+    }
+    items: dict[str, str] = {}
+    for api_key, db_key in key_map.items():
+        if api_key in body:
+            items[db_key] = str(body[api_key])
+    if not items:
+        raise HTTPException(status_code=400, detail="保存する設定がありません")
+    db.settings.set_many(items)
+    return {"status": "saved", "keys": list(items.keys())}
 
 
 def _do_redetect(date_str: str, config: AppConfig) -> None:

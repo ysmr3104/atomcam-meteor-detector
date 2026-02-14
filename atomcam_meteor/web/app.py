@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -9,13 +11,28 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from atomcam_meteor.config import AppConfig
+from atomcam_meteor.services.scheduler import PipelineScheduler
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+    """スケジューラの起動・停止を管理する。"""
+    scheduler: PipelineScheduler = app.state.scheduler
+    await scheduler.start()
+    yield
+    await scheduler.stop()
 
 
 def create_app(config: AppConfig) -> FastAPI:
     """Create and configure the FastAPI application."""
-    app = FastAPI(title="atomcam-meteor-detector", version="0.1.0")
+    app = FastAPI(
+        title="atomcam-meteor-detector",
+        version="0.1.0",
+        lifespan=lifespan,
+    )
 
     app.state.config = config
+    app.state.scheduler = PipelineScheduler(config)
 
     templates_dir = Path(__file__).parent / "templates"
     app.state.templates = Jinja2Templates(directory=str(templates_dir))
