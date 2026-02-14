@@ -55,6 +55,7 @@ class ScheduleConfig(BaseModel):
 
     start_time: str = "22:00"
     end_time: str = "06:00"
+    interval_minutes: int = 15
 
     @field_validator("start_time", "end_time")
     @classmethod
@@ -64,6 +65,13 @@ class ScheduleConfig(BaseModel):
         h, m = int(v[:2]), int(v[3:])
         if not (0 <= h <= 23 and 0 <= m <= 59):
             raise ValueError(f"無効な時刻です: {v!r}")
+        return v
+
+    @field_validator("interval_minutes")
+    @classmethod
+    def _validate_interval(cls, v: int) -> int:
+        if v < 0:
+            raise ValueError(f"interval_minutes は 0 以上で指定してください: {v}")
         return v
 
 

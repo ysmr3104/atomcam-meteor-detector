@@ -9,7 +9,10 @@ from atomcam_meteor.services.db import SettingsRepository, _SETTINGS_TABLE
 from atomcam_meteor.services.schedule_resolver import (
     get_current_detection_settings,
     get_current_settings,
+    get_current_system_settings,
     resolve_detection_config,
+    resolve_interval_minutes,
+    resolve_reboot_settings,
     resolve_schedule,
 )
 
@@ -117,6 +120,90 @@ class TestResolveScheduleTwilightOffset:
         assert len(end) == 5 and end[2] == ":"
 
 
+class TestResolveIntervalMinutes:
+    def test_db_value(self, settings_repo, yaml_schedule):
+        """DB に値がある場合はそれを返す"""
+        settings_repo.set_many({"schedule.interval_minutes": "30"})
+        result = resolve_interval_minutes(settings_repo, yaml_schedule)
+        assert result == 30
+
+    def test_yaml_fallback(self, yaml_schedule):
+        """DB なしの場合は YAML デフォルト"""
+        result = resolve_interval_minutes(None, yaml_schedule)
+        assert result == 15
+
+    def test_empty_db_yaml_fallback(self, settings_repo, yaml_schedule):
+        """DB が空の場合は YAML デフォルト"""
+        result = resolve_interval_minutes(settings_repo, yaml_schedule)
+        assert result == 15
+
+    def test_zero_value(self, settings_repo, yaml_schedule):
+        """0 はスケジューラ無効として有効"""
+        settings_repo.set_many({"schedule.interval_minutes": "0"})
+        result = resolve_interval_minutes(settings_repo, yaml_schedule)
+        assert result == 0
+
+    def test_negative_clamped_to_zero(self, settings_repo, yaml_schedule):
+        """負の値は 0 にクランプ"""
+        settings_repo.set_many({"schedule.interval_minutes": "-5"})
+        result = resolve_interval_minutes(settings_repo, yaml_schedule)
+        assert result == 0
+
+    def test_invalid_string_fallback(self, settings_repo, yaml_schedule):
+        """無効な文字列は YAML にフォールバック"""
+        settings_repo.set_many({"schedule.interval_minutes": "abc"})
+        result = resolve_interval_minutes(settings_repo, yaml_schedule)
+        assert result == 15
+
+
+class TestResolveRebootSettings:
+    def test_defaults(self):
+        """DB なしの場合のデフォルト値"""
+        enabled, time = resolve_reboot_settings(None)
+        assert enabled is False
+        assert time == "12:00"
+
+    def test_enabled(self, settings_repo):
+        """リブート有効"""
+        settings_repo.set_many({
+            "system.reboot_enabled": "true",
+            "system.reboot_time": "14:00",
+        })
+        enabled, time = resolve_reboot_settings(settings_repo)
+        assert enabled is True
+        assert time == "14:00"
+
+    def test_disabled(self, settings_repo):
+        """リブート無効"""
+        settings_repo.set_many({"system.reboot_enabled": "false"})
+        enabled, time = resolve_reboot_settings(settings_repo)
+        assert enabled is False
+
+    def test_empty_db(self, settings_repo):
+        """空の DB はデフォルト（無効）"""
+        enabled, time = resolve_reboot_settings(settings_repo)
+        assert enabled is False
+        assert time == "12:00"
+
+
+class TestGetCurrentSystemSettings:
+    def test_defaults(self):
+        """DB なしの場合のデフォルト値"""
+        settings = get_current_system_settings(None)
+        assert settings["reboot_enabled"] == "false"
+        assert settings["reboot_time"] == "12:00"
+
+    def test_db_values(self, settings_repo):
+        """DB 値が反映される"""
+        settings_repo.set_many({
+            "system.reboot_enabled": "true",
+            "system.reboot_time": "14:00",
+        })
+        settings = get_current_system_settings(settings_repo)
+        assert settings["reboot_enabled"] == "true"
+        assert settings["reboot_time"] == "14:00"
+
+
 class TestGetCurrentSettings:
     def test_defaults(self, yaml_schedule):
         """DB なしの場合のデフォルト値"""
@@ -127,6 +214,7 @@ class TestGetCurrentSettings:
         assert settings["end_time"] == "06:00"
         assert settings["location_mode"] == "preset"
         assert settings["prefecture"] == "東京都"
+        assert settings["interval_minutes"] == "15"
 
     def test_db_values(self, settings_repo, yaml_schedule):
         """DB 値が反映される"""

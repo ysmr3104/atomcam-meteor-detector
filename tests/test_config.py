@@ -64,6 +64,18 @@ class TestScheduleConfig:
         assert config.start_time == "20:30"
         assert config.end_time == "05:15"
 
+    def test_interval_minutes_default(self):
+        config = ScheduleConfig()
+        assert config.interval_minutes == 15
+
+    def test_interval_minutes_zero(self):
+        config = ScheduleConfig(interval_minutes=0)
+        assert config.interval_minutes == 0
+
+    def test_interval_minutes_negative(self):
+        with pytest.raises(ValidationError, match="0 以上"):
+            ScheduleConfig(interval_minutes=-1)
+
     def test_frozen(self):
         config = ScheduleConfig()
         with pytest.raises(ValidationError):
