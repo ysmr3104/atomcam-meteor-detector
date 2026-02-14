@@ -4,10 +4,12 @@ import sqlite3
 
 import pytest
 
-from atomcam_meteor.config import ScheduleConfig
+from atomcam_meteor.config import DetectionConfig, ScheduleConfig
 from atomcam_meteor.services.db import SettingsRepository, _SETTINGS_TABLE
 from atomcam_meteor.services.schedule_resolver import (
+    get_current_detection_settings,
     get_current_settings,
+    resolve_detection_config,
     resolve_schedule,
 )
 
@@ -165,3 +167,95 @@ class TestLocationResolution:
         })
         start, end = resolve_schedule(settings_repo, yaml_schedule, "20250101")
         assert len(start) == 5 and start[2] == ":"
+
+
+# ── 検出パラメータ解決テスト ─────────────────────────────────────────
+
+
+@pytest.fixture
+def yaml_detection():
+    """デフォルトの YAML DetectionConfig。"""
+    return DetectionConfig()
+
+
+class TestResolveDetectionConfig:
+    def test_no_db_returns_yaml(self, yaml_detection):
+        """DB なしの場合、YAML 値がそのまま返る"""
+        result = resolve_detection_config(None, yaml_detection)
+        assert result is yaml_detection
+
+    def test_empty_db_returns_yaml(self, settings_repo, yaml_detection):
+        """DB が空の場合、YAML 値がそのまま返る"""
+        result = resolve_detection_config(settings_repo, yaml_detection)
+        assert result is yaml_detection
+
+    def test_db_overrides_all(self, settings_repo, yaml_detection):
+        """DB 値が全てオーバーライドされる"""
+        settings_repo.set_many({
+            "detection.min_line_length": "50",
+            "detection.canny_threshold1": "80",
+            "detection.canny_threshold2": "160",
+            "detection.hough_threshold": "30",
+            "detection.max_line_gap": "10",
+            "detection.min_line_brightness": "25.5",
+            "detection.exclude_bottom_pct": "10.0",
+        })
+        result = resolve_detection_config(settings_repo, yaml_detection)
+        assert result is not yaml_detection
+        assert result.min_line_length == 50
+        assert result.canny_threshold1 == 80
+        assert result.canny_threshold2 == 160
+        assert result.hough_threshold == 30
+        assert result.max_line_gap == 10
+        assert result.min_line_brightness == 25.5
+        assert result.exclude_bottom_pct == 10.0
+
+    def test_partial_db_override(self, settings_repo, yaml_detection):
+        """一部のキーだけ DB に設定→混合値が返る"""
+        settings_repo.set_many({
+            "detection.min_line_length": "40",
+            "detection.hough_threshold": "35",
+        })
+        result = resolve_detection_config(settings_repo, yaml_detection)
+        assert result is not yaml_detection
+        assert result.min_line_length == 40
+        assert result.hough_threshold == 35
+        # 未設定の値は YAML デフォルト
+        assert result.canny_threshold1 == 100
+        assert result.canny_threshold2 == 200
+        assert result.max_line_gap == 5
+        assert result.min_line_brightness == 20.0
+        assert result.exclude_bottom_pct == 0
+
+    def test_unrelated_keys_ignored(self, settings_repo, yaml_detection):
+        """detection.* 以外のキーは無視される"""
+        settings_repo.set_many({
+            "schedule.start_time": "21:00",
+        })
+        result = resolve_detection_config(settings_repo, yaml_detection)
+        assert result is yaml_detection
+
+
+class TestGetCurrentDetectionSettings:
+    def test_defaults_without_db(self, yaml_detection):
+        """DB なしの場合のデフォルト値"""
+        result = get_current_detection_settings(None, yaml_detection)
+        assert result["min_line_length"] == "30"
+        assert result["canny_threshold1"] == "100"
+        assert result["canny_threshold2"] == "200"
+        assert result["hough_threshold"] == "25"
+        assert result["max_line_gap"] == "5"
+        assert result["min_line_brightness"] == "20.0"
+        assert result["exclude_bottom_pct"] == "0"
+
+    def test_db_values_override(self, settings_repo, yaml_detection):
+        """DB 値が優先される"""
+        settings_repo.set_many({
+            "detection.min_line_length": "50",
+            "detection.min_line_brightness": "30.0",
+        })
+        result = get_current_detection_settings(settings_repo, yaml_detection)
+        assert result["min_line_length"] == "50"
+        assert result["min_line_brightness"] == "30.0"
+        # 未設定の値は YAML デフォルト
+        assert result["canny_threshold1"] == "100"
