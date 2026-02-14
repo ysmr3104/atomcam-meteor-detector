@@ -30,6 +30,8 @@ def mock_deps(tmp_path):
     concatenator = MagicMock()
     extractor = MagicMock()
     db = MagicMock()
+    # resolve_schedule が MagicMock の settings を正しく扱えるよう設定
+    db.settings.get_all.return_value = {}
     return config, downloader, detector, compositor, concatenator, extractor, db
 
 
@@ -48,7 +50,7 @@ class TestPipeline:
         pipeline = Pipeline(config, downloader=MagicMock(), detector=MagicMock(),
                           compositor=MagicMock(), concatenator=MagicMock(),
                           extractor=MagicMock())
-        slots = pipeline._build_time_slots("20250101")
+        slots = pipeline._build_time_slots("20250101", "22:00", "06:00")
         # 22:00-06:00 → hours 22,23 (prev day) + 0,1,2,3,4,5 (curr day) = 8 slots
         assert len(slots) == 8
         assert slots[0] == ("20241231", 22)
@@ -270,7 +272,7 @@ class TestPipeline:
         pipeline = Pipeline(config, downloader=MagicMock(), detector=MagicMock(),
                           compositor=MagicMock(), concatenator=MagicMock(),
                           extractor=MagicMock())
-        all_slots = pipeline._build_time_slots("20250101")
+        all_slots = pipeline._build_time_slots("20250101", "22:00", "06:00")
         filtered = pipeline._filter_available_slots(all_slots)
         # Only 22:00 and 23:00 of Dec 31 should remain (0-5 of Jan 1 are future)
         assert len(filtered) == 2
@@ -286,7 +288,7 @@ class TestPipeline:
         pipeline = Pipeline(config, downloader=MagicMock(), detector=MagicMock(),
                           compositor=MagicMock(), concatenator=MagicMock(),
                           extractor=MagicMock())
-        all_slots = pipeline._build_time_slots("20250101")
+        all_slots = pipeline._build_time_slots("20250101", "22:00", "06:00")
         filtered = pipeline._filter_available_slots(all_slots)
         assert len(filtered) == 8
 
@@ -539,7 +541,7 @@ class TestTimeSlots:
         pipeline = Pipeline(config, downloader=MagicMock(), detector=MagicMock(),
                           compositor=MagicMock(), concatenator=MagicMock(),
                           extractor=MagicMock())
-        slots = pipeline._build_time_slots("20250101")
+        slots = pipeline._build_time_slots("20250101", "01:00", "05:00")
         # 01:00-05:00 → hours 1,2,3,4 = 4 slots (all same day)
         assert len(slots) == 4
         assert slots[0] == ("20250101", 1)
@@ -559,7 +561,7 @@ class TestTimeSlots:
         pipeline = Pipeline(config, downloader=MagicMock(), detector=MagicMock(),
                           compositor=MagicMock(), concatenator=MagicMock(),
                           extractor=MagicMock())
-        slots = pipeline._build_time_slots("20250101")
+        slots = pipeline._build_time_slots("20250101", "22:30", "05:15")
         # 22:30→05:15 → hours 22,23 (prev day) + 0,1,2,3,4,5 (curr day) = 8 slots
         # end_m=15 > 0 なので hour 5 も含む
         assert len(slots) == 8
@@ -582,51 +584,51 @@ class TestClipInRange:
         })
         return Pipeline(config, downloader=MagicMock(), detector=MagicMock(),
                        compositor=MagicMock(), concatenator=MagicMock(),
-                       extractor=MagicMock())
+                       extractor=MagicMock()), start_time, end_time
 
     def test_midnight_crossing_inside(self, tmp_path):
         """日付またぎ: 範囲内のクリップ"""
-        pipeline = self._make_pipeline(tmp_path, "22:00", "06:00")
-        assert pipeline._clip_in_range(22, 0) is True
-        assert pipeline._clip_in_range(23, 30) is True
-        assert pipeline._clip_in_range(0, 0) is True
-        assert pipeline._clip_in_range(3, 15) is True
-        assert pipeline._clip_in_range(5, 59) is True
+        pipeline, st, et = self._make_pipeline(tmp_path, "22:00", "06:00")
+        assert pipeline._clip_in_range(22, 0, st, et) is True
+        assert pipeline._clip_in_range(23, 30, st, et) is True
+        assert pipeline._clip_in_range(0, 0, st, et) is True
+        assert pipeline._clip_in_range(3, 15, st, et) is True
+        assert pipeline._clip_in_range(5, 59, st, et) is True
 
     def test_midnight_crossing_outside(self, tmp_path):
         """日付またぎ: 範囲外のクリップ"""
-        pipeline = self._make_pipeline(tmp_path, "22:00", "06:00")
-        assert pipeline._clip_in_range(6, 0) is False
-        assert pipeline._clip_in_range(12, 0) is False
-        assert pipeline._clip_in_range(21, 59) is False
+        pipeline, st, et = self._make_pipeline(tmp_path, "22:00", "06:00")
+        assert pipeline._clip_in_range(6, 0, st, et) is False
+        assert pipeline._clip_in_range(12, 0, st, et) is False
+        assert pipeline._clip_in_range(21, 59, st, et) is False
 
     def test_midnight_crossing_partial_start(self, tmp_path):
         """日付またぎ + 分指定: 開始境界のフィルタリング"""
-        pipeline = self._make_pipeline(tmp_path, "22:30", "05:15")
-        assert pipeline._clip_in_range(22, 29) is False
-        assert pipeline._clip_in_range(22, 30) is True
-        assert pipeline._clip_in_range(22, 59) is True
+        pipeline, st, et = self._make_pipeline(tmp_path, "22:30", "05:15")
+        assert pipeline._clip_in_range(22, 29, st, et) is False
+        assert pipeline._clip_in_range(22, 30, st, et) is True
+        assert pipeline._clip_in_range(22, 59, st, et) is True
 
     def test_midnight_crossing_partial_end(self, tmp_path):
         """日付またぎ + 分指定: 終了境界のフィルタリング"""
-        pipeline = self._make_pipeline(tmp_path, "22:30", "05:15")
-        assert pipeline._clip_in_range(5, 14) is True
-        assert pipeline._clip_in_range(5, 15) is False
-        assert pipeline._clip_in_range(5, 59) is False
+        pipeline, st, et = self._make_pipeline(tmp_path, "22:30", "05:15")
+        assert pipeline._clip_in_range(5, 14, st, et) is True
+        assert pipeline._clip_in_range(5, 15, st, et) is False
+        assert pipeline._clip_in_range(5, 59, st, et) is False
 
     def test_same_day_inside(self, tmp_path):
         """同日内: 範囲内のクリップ"""
-        pipeline = self._make_pipeline(tmp_path, "01:00", "05:00")
-        assert pipeline._clip_in_range(1, 0) is True
-        assert pipeline._clip_in_range(3, 30) is True
-        assert pipeline._clip_in_range(4, 59) is True
+        pipeline, st, et = self._make_pipeline(tmp_path, "01:00", "05:00")
+        assert pipeline._clip_in_range(1, 0, st, et) is True
+        assert pipeline._clip_in_range(3, 30, st, et) is True
+        assert pipeline._clip_in_range(4, 59, st, et) is True
 
     def test_same_day_outside(self, tmp_path):
         """同日内: 範囲外のクリップ"""
-        pipeline = self._make_pipeline(tmp_path, "01:00", "05:00")
-        assert pipeline._clip_in_range(0, 59) is False
-        assert pipeline._clip_in_range(5, 0) is False
-        assert pipeline._clip_in_range(22, 0) is False
+        pipeline, st, et = self._make_pipeline(tmp_path, "01:00", "05:00")
+        assert pipeline._clip_in_range(0, 59, st, et) is False
+        assert pipeline._clip_in_range(5, 0, st, et) is False
+        assert pipeline._clip_in_range(22, 0, st, et) is False
 
     def test_clip_outside_range_skipped_in_redetect(self, tmp_path, memory_db):
         """範囲外クリップが redetect_from_local でスキップされることの統合テスト"""

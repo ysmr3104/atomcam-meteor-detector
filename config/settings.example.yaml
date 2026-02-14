@@ -19,8 +19,12 @@ detection:
   min_line_brightness: 20.0       # 差分画像上の最低輝度（0で無効）
 
 schedule:
-  start_time: "22:00"
-  end_time: "06:00"
+  start_time: "22:00"             # デフォルトの開始時刻（固定モード用）
+  end_time: "06:00"               # デフォルトの終了時刻（固定モード用）
+  # 天文薄明ベースのスケジュールは Web UI の設定モーダルから構成可能。
+  # Web UI で設定した値は SQLite DB に保存され、YAML 値より優先される。
+  # モード: fixed（固定時刻）/ twilight（天文薄明自動）/ twilight_offset（薄明＋オフセット）
+  # 位置情報: 47都道府県プリセットまたはカスタム緯度経度を指定可能。
 
 paths:
   download_dir: "~/atomcam/downloads"

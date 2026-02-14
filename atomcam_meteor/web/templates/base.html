@@ -111,7 +111,12 @@
             <img src="/static/img/logo.png" alt="Logo" class="site-logo">
             <strong>atomcam-meteor-detect</strong>
         </a>
+        <button class="settings-btn" onclick="openSettings()" title="スケジュール設定"
+                style="margin-left:auto; background:none; border:none; cursor:pointer; padding:0.5rem; font-size:1.5rem; color:#fff;">
+            &#9881;
+        </button>
     </header>
+    {% include "components/schedule_settings.html" %}
     <main class="container">
         {% block content %}{% endblock %}
     </main>

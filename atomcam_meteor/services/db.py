@@ -66,6 +66,14 @@ CREATE TABLE IF NOT EXISTS detections (
 );
 """
 
+_SETTINGS_TABLE = """
+CREATE TABLE IF NOT EXISTS settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"""
+
 _MIGRATE_EXCLUDED = (
     "ALTER TABLE clips ADD COLUMN excluded INTEGER DEFAULT 0;"
 )
@@ -80,6 +88,7 @@ def init_db(db_path: Path) -> sqlite3.Connection:
     conn.execute(_CLIPS_TABLE)
     conn.execute(_NIGHT_OUTPUTS_TABLE)
     conn.execute(_DETECTIONS_TABLE)
+    conn.execute(_SETTINGS_TABLE)
     conn.commit()
     _migrate(conn)
     return conn
@@ -358,6 +367,50 @@ class NightOutputRepository:
         return [dict(r) for r in rows]
 
 
+class SettingsRepository:
+    """Key-value settings stored in the ``settings`` table."""
+
+    def __init__(self, conn: sqlite3.Connection) -> None:
+        self._conn = conn
+
+    def get(self, key: str) -> Optional[str]:
+        """Return the value for *key*, or ``None`` if not set."""
+        row = self._conn.execute(
+            "SELECT value FROM settings WHERE key = ?", (key,)
+        ).fetchone()
+        return row["value"] if row else None
+
+    def set(self, key: str, value: str) -> None:
+        """Insert or update a single setting."""
+        self._conn.execute(
+            """INSERT INTO settings (key, value, updated_at)
+               VALUES (?, ?, datetime('now'))
+               ON CONFLICT(key) DO UPDATE SET
+                   value = excluded.value,
+                   updated_at = datetime('now')""",
+            (key, value),
+        )
+        self._conn.commit()
+
+    def get_all(self) -> dict[str, str]:
+        """Return all settings as a dictionary."""
+        rows = self._conn.execute("SELECT key, value FROM settings").fetchall()
+        return {row["key"]: row["value"] for row in rows}
+
+    def set_many(self, items: dict[str, str]) -> None:
+        """Insert or update multiple settings at once."""
+        for key, value in items.items():
+            self._conn.execute(
+                """INSERT INTO settings (key, value, updated_at)
+                   VALUES (?, ?, datetime('now'))
+                   ON CONFLICT(key) DO UPDATE SET
+                       value = excluded.value,
+                       updated_at = datetime('now')""",
+                (key, value),
+            )
+        self._conn.commit()
+
+
 class StateDB:
     """Facade providing access to both repositories from a single connection."""
 
@@ -366,6 +419,7 @@ class StateDB:
         self.clips = ClipRepository(conn)
         self.detections = DetectionRepository(conn)
         self.nights = NightOutputRepository(conn)
+        self.settings = SettingsRepository(conn)
 
     @classmethod
     def from_path(cls, db_path: Path) -> StateDB:

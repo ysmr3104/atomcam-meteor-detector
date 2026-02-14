@@ -1,0 +1,221 @@
+<dialog id="scheduleSettingsDialog">
+    <article style="max-width: 600px; margin: auto;">
+        <header>
+            <button aria-label="Close" rel="prev" onclick="document.getElementById('scheduleSettingsDialog').close()"></button>
+            <h3>観測スケジュール設定</h3>
+        </header>
+
+        <form id="scheduleSettingsForm" onsubmit="return false;">
+            <!-- 開始時刻セクション -->
+            <fieldset>
+                <legend>開始時刻</legend>
+                <label for="startMode">モード</label>
+                <select id="startMode" name="start_mode" onchange="toggleStartFields()">
+                    <option value="fixed">固定時刻</option>
+                    <option value="twilight">天文薄明（自動）</option>
+                    <option value="twilight_offset">天文薄明＋オフセット</option>
+                </select>
+                <div id="startFixedFields">
+                    <label for="startTime">開始時刻</label>
+                    <input type="time" id="startTime" name="start_time" value="22:00">
+                </div>
+                <div id="startOffsetFields" style="display:none;">
+                    <label for="startOffset">オフセット（分）</label>
+                    <input type="number" id="startOffset" name="start_offset_minutes" value="0" step="5" min="-120" max="120">
+                    <small>負の値 = 薄明終了より早く開始、正の値 = 遅く開始</small>
+                </div>
+            </fieldset>
+
+            <!-- 終了時刻セクション -->
+            <fieldset>
+                <legend>終了時刻</legend>
+                <label for="endMode">モード</label>
+                <select id="endMode" name="end_mode" onchange="toggleEndFields()">
+                    <option value="fixed">固定時刻</option>
+                    <option value="twilight">天文薄明（自動）</option>
+                    <option value="twilight_offset">天文薄明＋オフセット</option>
+                </select>
+                <div id="endFixedFields">
+                    <label for="endTime">終了時刻</label>
+                    <input type="time" id="endTime" name="end_time" value="06:00">
+                </div>
+                <div id="endOffsetFields" style="display:none;">
+                    <label for="endOffset">オフセット（分）</label>
+                    <input type="number" id="endOffset" name="end_offset_minutes" value="0" step="5" min="-120" max="120">
+                    <small>負の値 = 薄明開始より早く終了、正の値 = 遅く終了</small>
+                </div>
+            </fieldset>
+
+            <!-- 観測地点セクション -->
+            <fieldset>
+                <legend>観測地点</legend>
+                <label for="locationMode">位置情報</label>
+                <select id="locationMode" name="location_mode" onchange="toggleLocationFields()">
+                    <option value="preset">都道府県プリセット</option>
+                    <option value="custom">カスタム座標</option>
+                </select>
+                <div id="presetFields">
+                    <label for="prefecture">都道府県</label>
+                    <select id="prefecture" name="prefecture">
+                        <option value="">読み込み中...</option>
+                    </select>
+                </div>
+                <div id="customFields" style="display:none;">
+                    <div class="grid">
+                        <label>
+                            緯度
+                            <input type="number" id="latitude" name="latitude" step="0.0001" min="-90" max="90" placeholder="35.6762">
+                        </label>
+                        <label>
+                            経度
+                            <input type="number" id="longitude" name="longitude" step="0.0001" min="-180" max="180" placeholder="139.6503">
+                        </label>
+                    </div>
+                </div>
+            </fieldset>
+
+            <!-- プレビューセクション -->
+            <fieldset>
+                <legend>プレビュー</legend>
+                <button type="button" class="secondary" onclick="previewSchedule()">今夜のスケジュールを確認</button>
+                <div id="previewResult" style="display:none; margin-top:0.5rem;">
+                    <small>
+                        <span id="previewDate"></span>:
+                        <strong><span id="previewStart"></span></strong> 〜
+                        <strong><span id="previewEnd"></span></strong>
+                    </small>
+                </div>
+            </fieldset>
+        </form>
+
+        <footer>
+            <button class="secondary" onclick="document.getElementById('scheduleSettingsDialog').close()">キャンセル</button>
+            <button onclick="saveSettings()">保存</button>
+        </footer>
+    </article>
+</dialog>
+
+<script>
+function toggleStartFields() {
+    var mode = document.getElementById('startMode').value;
+    document.getElementById('startFixedFields').style.display =
+        mode === 'fixed' ? '' : 'none';
+    document.getElementById('startOffsetFields').style.display =
+        mode === 'twilight_offset' ? '' : 'none';
+}
+
+function toggleEndFields() {
+    var mode = document.getElementById('endMode').value;
+    document.getElementById('endFixedFields').style.display =
+        mode === 'fixed' ? '' : 'none';
+    document.getElementById('endOffsetFields').style.display =
+        mode === 'twilight_offset' ? '' : 'none';
+}
+
+function toggleLocationFields() {
+    var mode = document.getElementById('locationMode').value;
+    document.getElementById('presetFields').style.display =
+        mode === 'preset' ? '' : 'none';
+    document.getElementById('customFields').style.display =
+        mode === 'custom' ? '' : 'none';
+}
+
+function openSettings() {
+    var dialog = document.getElementById('scheduleSettingsDialog');
+    dialog.showModal();
+    // 都道府県リストをロード
+    fetch('/api/settings/prefectures')
+        .then(function(r) { return r.json(); })
+        .then(function(prefs) {
+            var sel = document.getElementById('prefecture');
+            sel.innerHTML = '';
+            prefs.forEach(function(p) {
+                var opt = document.createElement('option');
+                opt.value = p.name;
+                opt.textContent = p.name;
+                sel.appendChild(opt);
+            });
+            // 現在の設定をロード
+            return fetch('/api/settings/schedule');
+        })
+        .then(function(r) { return r.json(); })
+        .then(function(s) {
+            document.getElementById('startMode').value = s.start_mode || 'fixed';
+            document.getElementById('startTime').value = s.start_time || '22:00';
+            document.getElementById('startOffset').value = s.start_offset_minutes || '0';
+            document.getElementById('endMode').value = s.end_mode || 'fixed';
+            document.getElementById('endTime').value = s.end_time || '06:00';
+            document.getElementById('endOffset').value = s.end_offset_minutes || '0';
+            document.getElementById('locationMode').value = s.location_mode || 'preset';
+            if (s.prefecture) {
+                document.getElementById('prefecture').value = s.prefecture;
+            }
+            if (s.latitude) {
+                document.getElementById('latitude').value = s.latitude;
+            }
+            if (s.longitude) {
+                document.getElementById('longitude').value = s.longitude;
+            }
+            toggleStartFields();
+            toggleEndFields();
+            toggleLocationFields();
+        });
+    document.getElementById('previewResult').style.display = 'none';
+}
+
+function saveSettings() {
+    var data = {
+        start_mode: document.getElementById('startMode').value,
+        start_time: document.getElementById('startTime').value,
+        start_offset_minutes: document.getElementById('startOffset').value,
+        end_mode: document.getElementById('endMode').value,
+        end_time: document.getElementById('endTime').value,
+        end_offset_minutes: document.getElementById('endOffset').value,
+        location_mode: document.getElementById('locationMode').value,
+        prefecture: document.getElementById('prefecture').value,
+        latitude: document.getElementById('latitude').value || '',
+        longitude: document.getElementById('longitude').value || '',
+    };
+    fetch('/api/settings/schedule', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data),
+    })
+    .then(function(r) { return r.json(); })
+    .then(function() {
+        document.getElementById('scheduleSettingsDialog').close();
+    });
+}
+
+function previewSchedule() {
+    // まず現在のフォーム値を一時保存
+    var data = {
+        start_mode: document.getElementById('startMode').value,
+        start_time: document.getElementById('startTime').value,
+        start_offset_minutes: document.getElementById('startOffset').value,
+        end_mode: document.getElementById('endMode').value,
+        end_time: document.getElementById('endTime').value,
+        end_offset_minutes: document.getElementById('endOffset').value,
+        location_mode: document.getElementById('locationMode').value,
+        prefecture: document.getElementById('prefecture').value,
+        latitude: document.getElementById('latitude').value || '',
+        longitude: document.getElementById('longitude').value || '',
+    };
+    // 一旦保存してプレビュー
+    fetch('/api/settings/schedule', {
+        method: 'PUT',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(data),
+    })
+    .then(function() {
+        return fetch('/api/settings/schedule/preview');
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(p) {
+        document.getElementById('previewDate').textContent = p.date_str;
+        document.getElementById('previewStart').textContent = p.start_time;
+        document.getElementById('previewEnd').textContent = p.end_time;
+        document.getElementById('previewResult').style.display = '';
+    });
+}
+</script>

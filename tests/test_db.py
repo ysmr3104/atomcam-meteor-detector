@@ -7,6 +7,7 @@ import pytest
 from atomcam_meteor.services.db import (
     ClipStatus,
     DetectionRepository,
+    SettingsRepository,
     StateDB,
     ClipRepository,
     NightOutputRepository,
@@ -243,11 +244,53 @@ class TestNightOutputRepository:
         assert nights[0]["date_str"] == "20250102"  # DESC order
 
 
+class TestSettingsRepository:
+    def test_get_nonexistent(self, memory_db):
+        """存在しないキーは None を返す"""
+        assert memory_db.settings.get("nonexistent") is None
+
+    def test_set_and_get(self, memory_db):
+        """set した値を get で取得できる"""
+        memory_db.settings.set("schedule.start_mode", "twilight")
+        assert memory_db.settings.get("schedule.start_mode") == "twilight"
+
+    def test_set_overwrite(self, memory_db):
+        """同一キーへの set で値が上書きされる"""
+        memory_db.settings.set("key1", "value1")
+        memory_db.settings.set("key1", "value2")
+        assert memory_db.settings.get("key1") == "value2"
+
+    def test_get_all_empty(self, memory_db):
+        """空のテーブルでは空辞書を返す"""
+        assert memory_db.settings.get_all() == {}
+
+    def test_get_all(self, memory_db):
+        """全設定を辞書として取得できる"""
+        memory_db.settings.set("a", "1")
+        memory_db.settings.set("b", "2")
+        result = memory_db.settings.get_all()
+        assert result == {"a": "1", "b": "2"}
+
+    def test_set_many(self, memory_db):
+        """複数設定を一括保存できる"""
+        memory_db.settings.set_many({"x": "10", "y": "20", "z": "30"})
+        assert memory_db.settings.get("x") == "10"
+        assert memory_db.settings.get("y") == "20"
+        assert memory_db.settings.get("z") == "30"
+
+    def test_set_many_overwrite(self, memory_db):
+        """set_many で既存値が上書きされる"""
+        memory_db.settings.set("key", "old")
+        memory_db.settings.set_many({"key": "new"})
+        assert memory_db.settings.get("key") == "new"
+
+
 class TestStateDB:
     def test_facade(self, memory_db):
         assert isinstance(memory_db.clips, ClipRepository)
         assert isinstance(memory_db.detections, DetectionRepository)
         assert isinstance(memory_db.nights, NightOutputRepository)
+        assert isinstance(memory_db.settings, SettingsRepository)
 
     def test_from_path(self, tmp_path):
         db = StateDB.from_path(tmp_path / "test.db")

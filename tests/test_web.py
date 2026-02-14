@@ -271,3 +271,61 @@ class TestDetectionAPI:
             json={"other": True},
         )
         assert resp.status_code == 400
+
+
+class TestSettingsAPI:
+    def test_get_schedule_defaults(self, client):
+        """デフォルト設定が返ること"""
+        resp = client.get("/api/settings/schedule")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["start_mode"] == "fixed"
+        assert data["start_time"] == "22:00"
+        assert data["end_mode"] == "fixed"
+        assert data["end_time"] == "06:00"
+
+    def test_put_and_get_schedule(self, client):
+        """設定の保存と取得"""
+        resp = client.put("/api/settings/schedule", json={
+            "start_mode": "twilight",
+            "start_time": "21:00",
+            "end_mode": "fixed",
+            "end_time": "05:30",
+            "location_mode": "preset",
+            "prefecture": "大阪府",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "saved"
+
+        resp = client.get("/api/settings/schedule")
+        data = resp.json()
+        assert data["start_mode"] == "twilight"
+        assert data["start_time"] == "21:00"
+        assert data["end_time"] == "05:30"
+        assert data["prefecture"] == "大阪府"
+
+    def test_put_empty_body(self, client):
+        """空のボディで 400 が返ること"""
+        resp = client.put("/api/settings/schedule", json={})
+        assert resp.status_code == 400
+
+    def test_get_prefectures(self, client):
+        """都道府県リストが 47 件返ること"""
+        resp = client.get("/api/settings/prefectures")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert len(data) == 47
+        assert data[0]["name"] == "北海道"
+        assert "latitude" in data[0]
+        assert "longitude" in data[0]
+
+    def test_preview_schedule(self, client):
+        """プレビューが有効な時刻を返すこと"""
+        resp = client.get("/api/settings/schedule/preview")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "date_str" in data
+        assert "start_time" in data
+        assert "end_time" in data
+        assert len(data["start_time"]) == 5
+        assert len(data["end_time"]) == 5

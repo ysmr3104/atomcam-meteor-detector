@@ -25,6 +25,7 @@ from atomcam_meteor.modules.detector import MeteorDetector
 from atomcam_meteor.modules.downloader import Downloader
 from atomcam_meteor.modules.extractor import ClipExtractor
 from atomcam_meteor.services.db import ClipStatus, StateDB
+from atomcam_meteor.services.schedule_resolver import resolve_schedule
 
 logger = logging.getLogger(__name__)
 
@@ -80,8 +81,15 @@ class Pipeline:
         download_dir = self._config.paths.resolve_download_dir()
         output_dir = self._config.paths.resolve_output_dir() / date_str
 
+        # スケジュール解決（DB → YAML → 薄明計算）
+        start_time, end_time = resolve_schedule(
+            self._db.settings if self._db else None,
+            self._config.schedule,
+            date_str,
+        )
+
         # Build list of (date_for_dir, hour) pairs
-        time_slots = self._build_time_slots(date_str)
+        time_slots = self._build_time_slots(date_str, start_time, end_time)
         time_slots = self._filter_available_slots(time_slots)
 
         clips_processed = 0
@@ -99,7 +107,7 @@ class Pipeline:
 
                 for clip_url, local_path in downloaded:
                     minute = int(local_path.stem)
-                    if not self._clip_in_range(hour, minute):
+                    if not self._clip_in_range(hour, minute, start_time, end_time):
                         logger.debug("Clip %02d:%02d outside range, skipping", hour, minute)
                         continue
                     clips_processed += 1
@@ -258,7 +266,14 @@ class Pipeline:
         download_dir = self._config.paths.resolve_download_dir()
         output_dir = self._config.paths.resolve_output_dir() / date_str
 
-        time_slots = self._build_time_slots(date_str)
+        # スケジュール解決（DB → YAML → 薄明計算）
+        start_time, end_time = resolve_schedule(
+            self._db.settings if self._db else None,
+            self._config.schedule,
+            date_str,
+        )
+
+        time_slots = self._build_time_slots(date_str, start_time, end_time)
 
         # 事前にクリップ総数をカウント
         all_mp4_files: list[tuple[str, int, Path]] = []
@@ -268,7 +283,7 @@ class Pipeline:
                 continue
             for mp4_file in sorted(hour_dir.glob("*.mp4")):
                 minute = int(mp4_file.stem)
-                if not self._clip_in_range(hour, minute):
+                if not self._clip_in_range(hour, minute, start_time, end_time):
                     continue
                 all_mp4_files.append((slot_date, hour, mp4_file))
 
@@ -605,10 +620,12 @@ class Pipeline:
                 available.append((slot_date, hour))
         return available
 
-    def _clip_in_range(self, hour: int, minute: int) -> bool:
+    def _clip_in_range(
+        self, hour: int, minute: int, start_time: str, end_time: str,
+    ) -> bool:
         """指定の (hour, minute) が観測時間範囲内かを判定する。"""
-        start_h, start_m = (int(x) for x in self._config.schedule.start_time.split(":"))
-        end_h, end_m = (int(x) for x in self._config.schedule.end_time.split(":"))
+        start_h, start_m = (int(x) for x in start_time.split(":"))
+        end_h, end_m = (int(x) for x in end_time.split(":"))
 
         clip = hour * 60 + minute
         start = start_h * 60 + start_m
@@ -619,7 +636,9 @@ class Pipeline:
         else:
             return start <= clip < end
 
-    def _build_time_slots(self, date_str: str) -> list[tuple[str, int]]:
+    def _build_time_slots(
+        self, date_str: str, start_time: str, end_time: str,
+    ) -> list[tuple[str, int]]:
         """Build (directory_date, hour) pairs for the observation night.
 
         An observation night spans from start_time to end_time.
@@ -629,8 +648,8 @@ class Pipeline:
         target = datetime.strptime(date_str, "%Y%m%d")
         prev_day = (target - timedelta(days=1)).strftime("%Y%m%d")
 
-        start_h, start_m = (int(x) for x in self._config.schedule.start_time.split(":"))
-        end_h, end_m = (int(x) for x in self._config.schedule.end_time.split(":"))
+        start_h, start_m = (int(x) for x in start_time.split(":"))
+        end_h, end_m = (int(x) for x in end_time.split(":"))
         start_total = start_h * 60 + start_m
         end_total = end_h * 60 + end_m
 

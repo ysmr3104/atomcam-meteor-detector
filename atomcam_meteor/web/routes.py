@@ -13,6 +13,8 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from atomcam_meteor.config import AppConfig
 from atomcam_meteor.services.db import ClipRepository, StateDB
+from atomcam_meteor.services.prefectures import PREFECTURES
+from atomcam_meteor.services.schedule_resolver import get_current_settings, resolve_schedule
 from atomcam_meteor.web.dependencies import get_config, get_db
 
 _JST = timezone(timedelta(hours=9))
@@ -362,6 +364,76 @@ def api_redetect_cancel(date_str: str) -> dict | JSONResponse:
         )
     event.set()
     return {"date_str": date_str, "status": "cancelling"}
+
+
+# ── 設定 API ──────────────────────────────────────────────────────────
+
+@router.get("/api/settings/schedule")
+def api_get_schedule_settings(
+    db: StateDB = Depends(get_db),
+    config: AppConfig = Depends(get_config),
+) -> dict:
+    """現在のスケジュール設定を取得する。"""
+    return get_current_settings(db.settings, config.schedule)
+
+
+@router.put("/api/settings/schedule")
+def api_put_schedule_settings(
+    body: dict,
+    db: StateDB = Depends(get_db),
+) -> dict:
+    """スケジュール設定を DB に保存する。"""
+    key_map = {
+        "start_mode": "schedule.start_mode",
+        "start_time": "schedule.start_time",
+        "start_offset_minutes": "schedule.start_offset_minutes",
+        "end_mode": "schedule.end_mode",
+        "end_time": "schedule.end_time",
+        "end_offset_minutes": "schedule.end_offset_minutes",
+        "location_mode": "schedule.location_mode",
+        "prefecture": "schedule.prefecture",
+        "latitude": "schedule.latitude",
+        "longitude": "schedule.longitude",
+    }
+    items: dict[str, str] = {}
+    for api_key, db_key in key_map.items():
+        if api_key in body:
+            items[db_key] = str(body[api_key])
+    if not items:
+        raise HTTPException(status_code=400, detail="保存する設定がありません")
+    db.settings.set_many(items)
+    return {"status": "saved", "keys": list(items.keys())}
+
+
+@router.get("/api/settings/prefectures")
+def api_get_prefectures() -> list[dict]:
+    """47都道府県リストを返す。"""
+    return [
+        {"name": name, "latitude": lat, "longitude": lon}
+        for name, (lat, lon) in PREFECTURES.items()
+    ]
+
+
+@router.get("/api/settings/schedule/preview")
+def api_preview_schedule(
+    db: StateDB = Depends(get_db),
+    config: AppConfig = Depends(get_config),
+) -> dict:
+    """現在の設定で今夜の解決済み時刻をプレビューする。"""
+    from datetime import datetime, timedelta
+
+    now = datetime.now()
+    target = now if now.hour < 12 else now + timedelta(days=1)
+    date_str = target.strftime("%Y%m%d")
+
+    start_time, end_time = resolve_schedule(
+        db.settings, config.schedule, date_str,
+    )
+    return {
+        "date_str": date_str,
+        "start_time": start_time,
+        "end_time": end_time,
+    }
 
 
 def _do_redetect(date_str: str, config: AppConfig) -> None:
