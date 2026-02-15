@@ -27,7 +27,7 @@ def create_app(config: AppConfig) -> FastAPI:
     """Create and configure the FastAPI application."""
     app = FastAPI(
         title="atomcam-meteor-detector",
-        version="0.1.0",
+        version="1.0.0",
         lifespan=lifespan,
     )
 
