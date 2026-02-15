@@ -8,12 +8,12 @@
 
 | 観点 | kin-hasegawa | 本プロジェクト |
 |------|-------------|--------------|
-| 主な用途 | リアルタイムストリーミング検出（RTSP/YouTube） | cron 駆動のバッチ処理 + Web ダッシュボード |
+| 主な用途 | リアルタイムストリーミング検出（RTSP/YouTube） | 内蔵スケジューラによる自動実行 + Web ダッシュボード |
 | 入力ソース | RTSP、YouTube Live、MP4 ファイル | ATOM Cam の HTTP ファイルサーバー |
 | 出力管理 | ファイルシステム上に直接保存 | SQLite DB で状態管理 |
 | パラメータ | コマンドライン引数 + ハードコード | YAML + DB + Web UI で変更可能 |
 | 構成 | 単一スクリプト（約 726 行） | モジュール分割（Pipeline, Detector, Compositor, etc.） |
-| 実行環境 | デスクトップ PC / Mac | Raspberry Pi（systemd + cron） |
+| 実行環境 | デスクトップ PC / Mac | Raspberry Pi（systemd） |
 
 ---
 

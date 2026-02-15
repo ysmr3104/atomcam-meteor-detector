@@ -3,17 +3,18 @@
 ## Architecture
 
 ```
-cron (毎朝6:00)               systemd (常駐)
-└─ atomcam run                └─ atomcam serve
+CLI (手動実行)                systemd (常駐)
+└─ atomcam run               └─ atomcam serve
      ├─ FileLock                   ├─ FastAPI + Uvicorn
      ├─ AppConfig                  ├─ Jinja2 Templates
      ├─ StateDB ◄──── SQLite ────► StateDB
      │                (WAL)        │
-     ├─ Downloader                 ├─ GET  /
-     ├─ Detector                   ├─ GET  /nights/{d}
-     ├─ Compositor ◄────────────── POST /rebuild
-     ├─ Concatenator               └─ Static files
-     └─ HookRunner
+     ├─ Downloader                 ├─ PipelineScheduler (asyncio)
+     ├─ Detector                   ├─ GET  /
+     ├─ Compositor ◄────────────── GET  /nights/{d}
+     ├─ Concatenator               ├─ GET  /admin
+     └─ HookRunner                 ├─ POST /rebuild, /redetect, ...
+                                   └─ Static files
 ```
 
 ## Pipeline Flow
@@ -66,6 +67,7 @@ erDiagram
         TEXT concat_video "結合動画パス"
         INTEGER detection_count "検出総数"
         TEXT last_updated_at "ISO datetime"
+        INTEGER hidden "0=表示, 1=非表示"
     }
 
     detections {
@@ -119,6 +121,7 @@ erDiagram
 | concat_video | TEXT | Concatenated video path |
 | detection_count | INTEGER | Total detections |
 | last_updated_at | TEXT | ISO datetime |
+| hidden | INTEGER | 0=表示, 1=非表示 (DEFAULT 0) |
 
 ### detections テーブル
 
@@ -152,9 +155,9 @@ FastAPI + Jinja2 によるサーバーサイドレンダリング。フロント
 
 | 画面 | パス | 内容 |
 |------|------|------|
-| ナイト一覧 | `/` | 日付ごとの検出数・合成画像サムネイルをグリッド表示 |
-| ナイト詳細 | `/nights/{date_str}` | 合成画像・結合動画・検出クリップの一覧と操作 |
-| 設定モーダル | ヘッダーの設定ボタン | スケジュール設定・検出パラメータ変更 |
+| ナイト一覧 | `/` | 日付ごとの検出数・合成画像サムネイルをグリッド表示。非表示の夜は除外 |
+| ナイト詳細 | `/nights/{date_str}` | 合成画像・結合動画・検出クリップの一覧と操作（Re-detect, Rebuild, Hide Night 等） |
+| 管理ページ | `/admin` | 観測スケジュール・自動実行・検出パラメータ・システム・データ管理の5タブ構成 |
 
 ### 主要機能
 
@@ -164,12 +167,16 @@ FastAPI + Jinja2 によるサーバーサイドレンダリング。フロント
 - 合成画像リビルド（excluded を反映して再合成）
 - 結合動画の生成・削除
 - 再検出（ダウンロード済みクリップから検出をやり直し）
+- 夜間データの非表示/再表示
 
-**設定変更:**
+**設定変更（管理ページ）:**
 - スケジュール設定（開始/終了時刻のモード: 固定 / 天文薄明 / 薄明オフセット）
 - 観測地点設定（プリセット都道府県 / カスタム座標）
+- パイプライン実行間隔の設定
 - 検出パラメータ調整（7パラメータ: min_line_length, canny_threshold1/2, hough_threshold, max_line_gap, min_line_brightness, exclude_bottom_pct）
+- システム設定（定期再起動）
 - スケジュールプレビュー（今夜の開始/終了時刻を確認）
+- 各設定のリセット（YAML のデフォルト値に戻す）
 
 ### バックグラウンドタスク
 
@@ -208,6 +215,7 @@ resolve_schedule() / resolve_detection_config()
 |--------|------|-------------|
 | GET | `/` | ナイト一覧ページ |
 | GET | `/nights/{date_str}` | ナイト詳細ページ |
+| GET | `/admin` | 管理ページ |
 
 ### 夜間データ取得
 
@@ -216,6 +224,7 @@ resolve_schedule() / resolve_detection_config()
 | GET | `/api/nights` | 全夜間リスト |
 | GET | `/api/nights/{date_str}` | 夜間詳細（output + clips） |
 | GET | `/api/nights/{date_str}/clips` | クリップリスト |
+| PATCH | `/api/nights/{date_str}/visibility` | 夜間データの表示/非表示切り替え |
 
 ### クリップ・検出管理
 
@@ -244,10 +253,16 @@ resolve_schedule() / resolve_detection_config()
 |--------|------|-------------|
 | GET | `/api/settings/schedule` | スケジュール設定取得 |
 | PUT | `/api/settings/schedule` | スケジュール設定保存 |
+| DELETE | `/api/settings/schedule` | スケジュール設定リセット |
+| GET | `/api/settings/schedule/preview` | スケジュールプレビュー |
 | GET | `/api/settings/detection` | 検出パラメータ取得 |
 | PUT | `/api/settings/detection` | 検出パラメータ保存 |
+| DELETE | `/api/settings/detection` | 検出パラメータリセット |
+| GET | `/api/settings/system` | システム設定取得 |
+| PUT | `/api/settings/system` | システム設定保存 |
+| DELETE | `/api/settings/system` | システム設定リセット |
 | GET | `/api/settings/prefectures` | 都道府県リスト |
-| GET | `/api/settings/schedule/preview` | スケジュールプレビュー |
+| GET | `/api/scheduler/status` | スケジューラ状態取得 |
 
 ### 静的ファイル
 
@@ -256,6 +271,27 @@ resolve_schedule() / resolve_detection_config()
 | GET | `/static/...` | 静的アセット |
 | GET | `/media/downloads/...` | ダウンロード済みクリップ |
 | GET | `/media/output/...` | 出力画像・動画 |
+
+## パイプラインスケジューラ
+
+`PipelineScheduler` が Web サーバーの lifespan 内で起動し、観測時間帯中にパイプラインを定期実行する。
+
+### 主要機能
+
+- **asyncio ベース**: 外部ライブラリ不要、`asyncio.to_thread` でパイプライン実行
+- **設定の動的解決**: 毎サイクルで DB から `interval_minutes` と観測スケジュールを再取得（管理ページの変更を即時反映）
+- **排他制御**: `FileLock` で CLI (`atomcam run`) との同時実行を防止
+- **定期再起動**: 観測時間帯外に1日1回、設定された時刻にシステムを再起動（`sudo reboot`、要 sudoers 設定）
+- `interval_minutes == 0` でスケジューラ無効（手動実行のみ）
+
+### ステータス API
+
+`GET /api/scheduler/status` で以下の情報を取得:
+
+- スケジューラの有効/無効状態
+- 次回実行予定時刻
+- 最終実行時刻
+- 現在の設定値（interval_minutes 等）
 
 ## Exception Hierarchy
 
@@ -282,4 +318,4 @@ AtomcamError
 - フレームは exposure_duration_sec 分のグループ単位で処理 (メモリ制限)
 - ダウンロードはストリーミング (8KB チャンク)
 - SQLite WAL モードで読み書き同時アクセス対応
-- FileLock で cron 多重実行を防止
+- FileLock で CLI / スケジューラの多重実行を防止
