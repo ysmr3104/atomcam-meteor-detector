@@ -55,7 +55,7 @@ class ScheduleConfig(BaseModel):
 
     start_time: str = "22:00"
     end_time: str = "06:00"
-    interval_minutes: int = 15
+    interval_minutes: int = 60
 
     @field_validator("start_time", "end_time")
     @classmethod

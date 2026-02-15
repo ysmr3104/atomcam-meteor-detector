@@ -24,7 +24,7 @@ _DEFAULT_END_MODE = "fixed"
 _DEFAULT_LOCATION_MODE = "preset"
 _DEFAULT_PREFECTURE = "東京都"
 _DEFAULT_OFFSET = "0"
-_DEFAULT_INTERVAL_MINUTES = "15"
+_DEFAULT_INTERVAL_MINUTES = "60"
 _DEFAULT_REBOOT_ENABLED = "false"
 _DEFAULT_REBOOT_TIME = "12:00"
 
@@ -207,8 +207,8 @@ def resolve_detection_config(
     overrides: dict[str, Any] = {}
     for key in _DETECTION_KEYS:
         db_key = f"detection.{key}"
-        if db_key in db_settings:
-            val = db_settings[db_key]
+        val = db_settings.get(db_key)
+        if val:
             annotation = DetectionConfig.model_fields[key].annotation
             if annotation is int:
                 overrides[key] = int(val)
@@ -230,5 +230,6 @@ def get_current_detection_settings(
     db_settings = settings.get_all() if settings else {}
     for key in _DETECTION_KEYS:
         db_key = f"detection.{key}"
-        result[key] = db_settings.get(db_key, str(getattr(yaml_detection, key)))
+        db_val = db_settings.get(db_key)
+        result[key] = db_val if db_val else str(getattr(yaml_detection, key))
     return result

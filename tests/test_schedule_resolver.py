@@ -130,12 +130,12 @@ class TestResolveIntervalMinutes:
     def test_yaml_fallback(self, yaml_schedule):
         """DB なしの場合は YAML デフォルト"""
         result = resolve_interval_minutes(None, yaml_schedule)
-        assert result == 15
+        assert result == 60
 
     def test_empty_db_yaml_fallback(self, settings_repo, yaml_schedule):
         """DB が空の場合は YAML デフォルト"""
         result = resolve_interval_minutes(settings_repo, yaml_schedule)
-        assert result == 15
+        assert result == 60
 
     def test_zero_value(self, settings_repo, yaml_schedule):
         """0 はスケジューラ無効として有効"""
@@ -153,7 +153,7 @@ class TestResolveIntervalMinutes:
         """無効な文字列は YAML にフォールバック"""
         settings_repo.set_many({"schedule.interval_minutes": "abc"})
         result = resolve_interval_minutes(settings_repo, yaml_schedule)
-        assert result == 15
+        assert result == 60
 
 
 class TestResolveRebootSettings:
@@ -214,7 +214,7 @@ class TestGetCurrentSettings:
         assert settings["end_time"] == "06:00"
         assert settings["location_mode"] == "preset"
         assert settings["prefecture"] == "東京都"
-        assert settings["interval_minutes"] == "15"
+        assert settings["interval_minutes"] == "60"
 
     def test_db_values(self, settings_repo, yaml_schedule):
         """DB 値が反映される"""

@@ -436,3 +436,52 @@ class TestDetectionSettingsAPI:
         """無効なキーのみのボディで 400 が返ること"""
         resp = client.put("/api/settings/detection", json={"invalid_key": "100"})
         assert resp.status_code == 400
+
+
+class TestResetSettingsAPI:
+    def test_reset_schedule(self, client):
+        """スケジュール設定のリセット"""
+        # 値を保存
+        client.put("/api/settings/schedule", json={
+            "start_time": "21:00",
+            "prefecture": "大阪府",
+            "interval_minutes": "30",
+        })
+        # リセット
+        resp = client.delete("/api/settings/schedule")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "reset"
+        # デフォルトに戻っていること
+        resp = client.get("/api/settings/schedule")
+        data = resp.json()
+        assert data["start_time"] == "22:00"
+        assert data["prefecture"] == "東京都"
+        assert data["interval_minutes"] == "60"
+
+    def test_reset_detection(self, client):
+        """検出設定のリセット"""
+        client.put("/api/settings/detection", json={
+            "min_line_length": "99",
+            "hough_threshold": "50",
+        })
+        resp = client.delete("/api/settings/detection")
+        assert resp.status_code == 200
+        # デフォルトに戻っていること
+        resp = client.get("/api/settings/detection")
+        data = resp.json()
+        assert data["min_line_length"] == "30"
+        assert data["hough_threshold"] == "25"
+
+    def test_reset_system(self, client):
+        """システム設定のリセット"""
+        client.put("/api/settings/system", json={
+            "reboot_enabled": "true",
+            "reboot_time": "15:00",
+        })
+        resp = client.delete("/api/settings/system")
+        assert resp.status_code == 200
+        # デフォルトに戻っていること
+        resp = client.get("/api/settings/system")
+        data = resp.json()
+        assert data["reboot_enabled"] == "false"
+        assert data["reboot_time"] == "12:00"
