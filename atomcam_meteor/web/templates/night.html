@@ -53,7 +53,7 @@
                 Exclude All
             </button>
             <button id="hide-night-btn" onclick="toggleNightVisibility()" class="outline secondary" style="margin:0; padding:0.25rem 0.75rem;">
-                {% if night_output and night_output.hidden %}表示に戻す{% else %}この夜を非表示{% endif %}
+                {% if night_output and night_output.hidden %}Unhide Night{% else %}Hide Night{% endif %}
             </button>
         </p>
     </hgroup>
@@ -357,7 +357,7 @@ document.addEventListener('DOMContentLoaded', checkRedetectOnLoad);
 
 async function toggleNightVisibility() {
     const btn = document.getElementById('hide-night-btn');
-    const currentlyHidden = btn.textContent.trim() === '表示に戻す';
+    const currentlyHidden = btn.textContent.trim() === 'Unhide Night';
     const newHidden = !currentlyHidden;
     btn.disabled = true;
     try {
@@ -370,7 +370,7 @@ async function toggleNightVisibility() {
             if (newHidden) {
                 window.location.href = '/';
             } else {
-                btn.textContent = 'この夜を非表示';
+                btn.textContent = 'Hide Night';
                 btn.disabled = false;
             }
         } else {
