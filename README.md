@@ -2,6 +2,13 @@
 
 ATOM Cam の動画から流星を自動検出し、比較明合成画像と結合動画を生成するツール。
 
+## Getting Started
+
+セットアップ手順は [docs/setup.md](docs/setup.md) を参照してください。
+
+- [PC 環境でのセットアップ](docs/setup.md#pc-環境でのセットアップ)
+- [Raspberry Pi 環境でのセットアップ](docs/setup.md#raspberry-pi-環境でのセットアップ)
+
 ## Features
 
 - ATOM Cam の SD カード録画から1分クリップを自動ダウンロード
@@ -48,13 +55,6 @@ ATOM Cam の動画から流星を自動検出し、比較明合成画像と結�
 |:---:|
 | ![データ管理](docs/images/screenshot-admin-data.jpg) |
 | 非表示にした夜間データの一覧表示・再表示 |
-
-## Getting Started
-
-セットアップ手順は [docs/setup.md](docs/setup.md) を参照してください。
-
-- [PC 環境でのセットアップ](docs/setup.md#pc-環境でのセットアップ)
-- [Raspberry Pi 環境でのセットアップ](docs/setup.md#raspberry-pi-環境でのセットアップ)
 
 ## 参考
 
