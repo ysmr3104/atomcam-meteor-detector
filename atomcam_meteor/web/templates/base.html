@@ -104,16 +104,25 @@
             border-radius: var(--pico-border-radius);
             margin-bottom: 0.5rem;
         }
-        .night-card.hidden { opacity: 0.4; }
-        .visibility-btn {
-            position: absolute; top: 0.5rem; right: 0.5rem;
-            background: rgba(0,0,0,0.5); border: none; border-radius: 50%;
-            width: 2rem; height: 2rem; cursor: pointer;
-            color: #fff; font-size: 0.9rem; padding: 0;
-            display: flex; align-items: center; justify-content: center;
-            z-index: 1;
+        .toast {
+            background: var(--pico-card-background-color, #fff);
+            border-radius: 6px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            padding: 1rem 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            animation: toastSlideIn 0.3s ease-out;
+            border-left: 4px solid #ccc;
         }
-        .visibility-btn:hover { background: rgba(0,0,0,0.7); }
+        .toast.success { border-left-color: #10b981; }
+        .toast.error   { border-left-color: #ef4444; }
+        .toast .toast-icon { font-size: 1.2rem; flex-shrink: 0; }
+        .toast.success .toast-icon { color: #10b981; }
+        .toast.error   .toast-icon { color: #ef4444; }
+        .toast.removing { animation: toastSlideOut 0.3s ease-in forwards; }
+        @keyframes toastSlideIn  { from { transform:translateX(400px); opacity:0; } to { transform:translateX(0); opacity:1; } }
+        @keyframes toastSlideOut { from { transform:translateX(0); opacity:1; } to { transform:translateX(400px); opacity:0; } }
     </style>
 </head>
 <body>
@@ -122,12 +131,11 @@
             <img src="/static/img/logo.png" alt="Logo" class="site-logo">
             <strong>atomcam-meteor-detector</strong>
         </a>
-        <button class="settings-btn" onclick="openSettings()" title="スケジュール設定"
-                style="margin-left:auto; background:none; border:none; cursor:pointer; padding:0.5rem; font-size:1.5rem; color:#fff;">
+        <a href="/admin" title="管理ページ"
+           style="margin-left:auto; padding:0.5rem; font-size:1.5rem; color:#fff; text-decoration:none;">
             &#9881;
-        </button>
+        </a>
     </header>
-    {% include "components/schedule_settings.html" %}
     <main class="container">
         {% block content %}{% endblock %}
     </main>

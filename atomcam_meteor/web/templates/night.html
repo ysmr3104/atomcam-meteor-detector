@@ -52,6 +52,9 @@
             <button onclick="setAllExcluded(true)" class="outline secondary" style="margin:0; padding:0.25rem 0.75rem;">
                 Exclude All
             </button>
+            <button id="hide-night-btn" onclick="toggleNightVisibility()" class="outline secondary" style="margin:0; padding:0.25rem 0.75rem;">
+                {% if night_output and night_output.hidden %}表示に戻す{% else %}この夜を非表示{% endif %}
+            </button>
         </p>
     </hgroup>
 
@@ -351,5 +354,33 @@ async function checkRedetectOnLoad() {
     }
 }
 document.addEventListener('DOMContentLoaded', checkRedetectOnLoad);
+
+async function toggleNightVisibility() {
+    const btn = document.getElementById('hide-night-btn');
+    const currentlyHidden = btn.textContent.trim() === '表示に戻す';
+    const newHidden = !currentlyHidden;
+    btn.disabled = true;
+    try {
+        const resp = await fetch('/api/nights/{{ date_str }}/visibility', {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({hidden: newHidden}),
+        });
+        if (resp.ok) {
+            if (newHidden) {
+                window.location.href = '/';
+            } else {
+                btn.textContent = 'この夜を非表示';
+                btn.disabled = false;
+            }
+        } else {
+            btn.disabled = false;
+            alert('非表示の切り替えに失敗しました');
+        }
+    } catch (e) {
+        btn.disabled = false;
+        alert('リクエストに失敗しました: ' + e.message);
+    }
+}
 </script>
 {% endblock %}

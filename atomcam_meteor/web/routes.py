@@ -71,7 +71,7 @@ def index_page(
     db: StateDB = Depends(get_db),
 ) -> HTMLResponse:
     """Night list dashboard."""
-    nights = db.nights.get_all_nights()
+    nights = db.nights.get_visible_nights()
     config: AppConfig = request.app.state.config
     output_dir = config.paths.resolve_output_dir()
     for night in nights:
@@ -84,10 +84,24 @@ def index_page(
         else:
             night["composite_url"] = None
         night["last_updated_jst"] = _utc_to_jst(night.get("last_updated_at"))
-    hidden_count = sum(1 for n in nights if n.get("hidden"))
     templates = request.app.state.templates
     return templates.TemplateResponse(
-        request, "index.html", {"nights": nights, "hidden_count": hidden_count},
+        request, "index.html", {"nights": nights},
+    )
+
+
+@router.get("/admin", response_class=HTMLResponse)
+def admin_page(
+    request: Request,
+    db: StateDB = Depends(get_db),
+) -> HTMLResponse:
+    """管理ページ。"""
+    hidden_nights = [n for n in db.nights.get_all_nights() if n.get("hidden")]
+    for night in hidden_nights:
+        night["last_updated_jst"] = _utc_to_jst(night.get("last_updated_at"))
+    templates = request.app.state.templates
+    return templates.TemplateResponse(
+        request, "admin.html", {"hidden_nights": hidden_nights},
     )
 
 

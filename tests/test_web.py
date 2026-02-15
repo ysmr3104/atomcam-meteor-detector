@@ -304,22 +304,38 @@ class TestNightVisibilityAPI:
         )
         assert resp.status_code == 404
 
-    def test_index_hidden_count(self, client, seeded_db):
-        """非表示にした夜の件数がテンプレートに含まれること"""
-        # 非表示にする
+    def test_index_hides_hidden_nights(self, client, seeded_db):
+        """非表示にした夜がインデックスに表示されないこと"""
         client.patch(
             "/api/nights/20250101/visibility", json={"hidden": True},
         )
         resp = client.get("/")
         assert resp.status_code == 200
-        assert "hidden-count" in resp.text
-        assert "1件" in resp.text or ">1<" in resp.text
+        assert "20250101" not in resp.text
 
-    def test_index_no_hidden_label_when_zero(self, client, seeded_db):
-        """非表示が0件の場合、チェックボックスが表示されないこと"""
-        resp = client.get("/")
+
+class TestAdminPage:
+    def test_admin_page(self, client):
+        """管理ページが200を返すこと"""
+        resp = client.get("/admin")
         assert resp.status_code == 200
-        assert "非表示の夜を表示" not in resp.text
+        assert "管理ページ" in resp.text
+
+    def test_admin_shows_hidden_nights(self, client, seeded_db):
+        """非表示の夜がリストに表示されること"""
+        client.patch(
+            "/api/nights/20250101/visibility", json={"hidden": True},
+        )
+        resp = client.get("/admin")
+        assert resp.status_code == 200
+        assert "20250101" in resp.text
+        assert "表示に戻す" in resp.text
+
+    def test_admin_no_hidden(self, client, seeded_db):
+        """非表示の夜がない場合のメッセージ"""
+        resp = client.get("/admin")
+        assert resp.status_code == 200
+        assert "非表示の夜はありません" in resp.text
 
 
 class TestSettingsAPI:
