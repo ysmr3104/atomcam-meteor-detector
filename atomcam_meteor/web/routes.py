@@ -481,6 +481,46 @@ def api_get_prefectures() -> list[dict]:
     ]
 
 
+@router.get("/api/settings/geolocate")
+def api_geolocate() -> dict:
+    """IP ジオロケーションで現在地を推定する。"""
+    import httpx
+
+    try:
+        resp = httpx.get(
+            "http://ip-api.com/json/",
+            params={"fields": "status,regionName,lat,lon", "lang": "ja"},
+            timeout=5,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except (httpx.HTTPError, ValueError) as exc:
+        raise HTTPException(
+            status_code=502, detail=f"位置情報の取得に失敗しました: {exc}",
+        ) from exc
+
+    if data.get("status") != "success":
+        raise HTTPException(status_code=502, detail="位置情報の取得に失敗しました")
+
+    region = data.get("regionName", "")
+    lat = data.get("lat", 0.0)
+    lon = data.get("lon", 0.0)
+
+    # 地域名から都道府県を照合
+    matched_prefecture = None
+    for name in PREFECTURES:
+        if name in region or region in name:
+            matched_prefecture = name
+            break
+
+    return {
+        "latitude": lat,
+        "longitude": lon,
+        "region": region,
+        "prefecture": matched_prefecture,
+    }
+
+
 @router.get("/api/settings/schedule/preview")
 def api_preview_schedule(
     db: StateDB = Depends(get_db),

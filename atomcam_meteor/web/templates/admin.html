@@ -91,6 +91,7 @@
                 </label>
             </div>
         </div>
+        <button type="button" id="geolocateBtn" class="secondary outline" onclick="detectLocation()" style="width:auto; font-size:0.8rem; padding:0.4rem 0.8rem; margin-top:0.5rem;">現在地を自動検出</button>
     </fieldset>
 
     <fieldset>
@@ -557,6 +558,42 @@ function restoreNight(dateStr, btn) {
         btn.textContent = '表示に戻す';
         showToast('表示の切り替えに失敗しました', 'error');
     });
+}
+
+/* -- 現在地を自動検出 -- */
+function detectLocation() {
+    var btn = document.getElementById('geolocateBtn');
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    btn.textContent = '検出中...';
+
+    fetch('/api/settings/geolocate')
+        .then(function(r) {
+            if (!r.ok) return r.json().then(function(e) { throw new Error(e.detail || '取得失敗'); });
+            return r.json();
+        })
+        .then(function(geo) {
+            if (geo.prefecture) {
+                document.getElementById('locationMode').value = 'preset';
+                document.getElementById('prefecture').value = geo.prefecture;
+                toggleLocationFields();
+                showToast(geo.prefecture + ' を検出しました', 'success');
+            } else {
+                document.getElementById('locationMode').value = 'custom';
+                document.getElementById('latitude').value = geo.latitude;
+                document.getElementById('longitude').value = geo.longitude;
+                toggleLocationFields();
+                showToast('座標を検出しました（' + geo.region + '）', 'success');
+            }
+        })
+        .catch(function(err) {
+            showToast('位置情報の取得に失敗しました: ' + err.message, 'error');
+        })
+        .finally(function() {
+            btn.disabled = false;
+            btn.setAttribute('aria-busy', 'false');
+            btn.textContent = '現在地を自動検出';
+        });
 }
 
 /* -- ページ読み込み時に設定をロード -- */
