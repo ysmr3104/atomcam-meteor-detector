@@ -504,6 +504,33 @@ def api_put_system_settings(
     return {"status": "saved", "keys": list(items.keys())}
 
 
+@router.delete("/api/settings/schedule")
+def api_reset_schedule_settings(
+    db: StateDB = Depends(get_db),
+) -> dict:
+    """スケジュール設定をデフォルトにリセットする。"""
+    deleted = db.settings.delete_by_prefix("schedule.")
+    return {"status": "reset", "deleted": deleted}
+
+
+@router.delete("/api/settings/detection")
+def api_reset_detection_settings(
+    db: StateDB = Depends(get_db),
+) -> dict:
+    """検出設定をデフォルトにリセットする。"""
+    deleted = db.settings.delete_by_prefix("detection.")
+    return {"status": "reset", "deleted": deleted}
+
+
+@router.delete("/api/settings/system")
+def api_reset_system_settings(
+    db: StateDB = Depends(get_db),
+) -> dict:
+    """システム設定をデフォルトにリセットする。"""
+    deleted = db.settings.delete_by_prefix("system.")
+    return {"status": "reset", "deleted": deleted}
+
+
 def _do_redetect(date_str: str, config: AppConfig) -> None:
     """Background task: re-run detection on local files."""
     cancel_event = threading.Event()

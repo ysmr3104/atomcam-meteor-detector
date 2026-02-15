@@ -82,7 +82,7 @@ _MIGRATE_EXCLUDED = (
 def init_db(db_path: Path) -> sqlite3.Connection:
     """Create or open the database, enable WAL mode, and create tables."""
     db_path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(db_path))
+    conn = sqlite3.connect(str(db_path), timeout=5.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute(_CLIPS_TABLE)
@@ -409,6 +409,17 @@ class SettingsRepository:
                 (key, value),
             )
         self._conn.commit()
+
+    def delete_by_prefix(self, prefix: str) -> int:
+        """Delete all settings whose key starts with *prefix*.
+
+        Returns the number of deleted rows.
+        """
+        cur = self._conn.execute(
+            "DELETE FROM settings WHERE key LIKE ?", (prefix + "%",),
+        )
+        self._conn.commit()
+        return cur.rowcount
 
 
 class StateDB:

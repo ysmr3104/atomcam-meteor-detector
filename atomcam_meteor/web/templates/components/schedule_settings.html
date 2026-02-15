@@ -1,4 +1,31 @@
+<!-- トースト通知コンテナ -->
+<div id="toast-container" style="position:fixed; top:20px; right:20px; z-index:10000; display:flex; flex-direction:column; gap:10px; max-width:400px;"></div>
+
+<style>
+.toast {
+    background: var(--pico-card-background-color, #fff);
+    border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+    padding: 1rem 1.25rem;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    animation: toastSlideIn 0.3s ease-out;
+    border-left: 4px solid #ccc;
+}
+.toast.success { border-left-color: #10b981; }
+.toast.error   { border-left-color: #ef4444; }
+.toast .toast-icon { font-size: 1.2rem; flex-shrink: 0; }
+.toast.success .toast-icon { color: #10b981; }
+.toast.error   .toast-icon { color: #ef4444; }
+.toast.removing { animation: toastSlideOut 0.3s ease-in forwards; }
+@keyframes toastSlideIn  { from { transform:translateX(400px); opacity:0; } to { transform:translateX(0); opacity:1; } }
+@keyframes toastSlideOut { from { transform:translateX(0); opacity:1; } to { transform:translateX(400px); opacity:0; } }
+</style>
+
 <dialog id="scheduleSettingsDialog">
+    <!-- ダイアログ内トーストコンテナ（トップレイヤー内に描画される） -->
+    <div id="dialog-toast-container" style="position:fixed; top:20px; right:20px; z-index:10000; display:flex; flex-direction:column; gap:10px; max-width:400px;"></div>
     <article style="max-width: 640px; margin: auto; display: flex; flex-direction: column; max-height: 80vh; overflow: hidden;">
         <header style="flex-shrink: 0;">
             <button aria-label="Close" rel="prev" onclick="document.getElementById('scheduleSettingsDialog').close()"></button>
@@ -6,20 +33,20 @@
         </header>
 
         <!-- タブナビゲーション -->
-        <nav class="settings-tabs" style="flex-shrink: 0; display: flex; gap: 0; border-bottom: 2px solid var(--pico-muted-border-color); padding: 0 var(--pico-block-spacing-horizontal); margin-bottom: 0;">
-            <button class="tab active" data-tab="schedule" onclick="switchTab('schedule')"
-                    style="background: none; border: none; border-bottom: 2px solid var(--pico-primary); margin-bottom: -2px; padding: 0.5rem 1rem; cursor: pointer; font-weight: bold; color: var(--pico-primary); font-size: 0.875rem;">
-                観測スケジュール</button>
-            <button class="tab" data-tab="automation" onclick="switchTab('automation')"
-                    style="background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -2px; padding: 0.5rem 1rem; cursor: pointer; font-size: 0.875rem;">
-                自動実行</button>
-            <button class="tab" data-tab="detection" onclick="switchTab('detection')"
-                    style="background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -2px; padding: 0.5rem 1rem; cursor: pointer; font-size: 0.875rem;">
-                検出パラメータ</button>
-            <button class="tab" data-tab="system" onclick="switchTab('system')"
-                    style="background: none; border: none; border-bottom: 2px solid transparent; margin-bottom: -2px; padding: 0.5rem 1rem; cursor: pointer; font-size: 0.875rem;">
-                システム</button>
-        </nav>
+        <div class="settings-tabs" style="flex-shrink: 0; display: flex; gap: 0; border-bottom: 2px solid var(--pico-muted-border-color); padding: 0 var(--pico-block-spacing-horizontal); margin-bottom: 0;">
+            <a class="tab active" data-tab="schedule" onclick="switchTab('schedule')"
+               style="border-bottom: 2px solid var(--pico-primary); margin-bottom: -2px; padding: 0.5rem 1rem; cursor: pointer; font-weight: bold; color: var(--pico-primary); font-size: 0.875rem; text-decoration: none; white-space: nowrap;">
+                観測スケジュール</a>
+            <a class="tab" data-tab="automation" onclick="switchTab('automation')"
+               style="border-bottom: 2px solid transparent; margin-bottom: -2px; padding: 0.5rem 1rem; cursor: pointer; font-size: 0.875rem; text-decoration: none; white-space: nowrap;">
+                自動実行</a>
+            <a class="tab" data-tab="detection" onclick="switchTab('detection')"
+               style="border-bottom: 2px solid transparent; margin-bottom: -2px; padding: 0.5rem 1rem; cursor: pointer; font-size: 0.875rem; text-decoration: none; white-space: nowrap;">
+                検出パラメータ</a>
+            <a class="tab" data-tab="system" onclick="switchTab('system')"
+               style="border-bottom: 2px solid transparent; margin-bottom: -2px; padding: 0.5rem 1rem; cursor: pointer; font-size: 0.875rem; text-decoration: none; white-space: nowrap;">
+                システム</a>
+        </div>
 
         <div style="flex: 1; overflow-y: auto; padding: 0 var(--pico-block-spacing-horizontal);">
 
@@ -102,6 +129,7 @@
                     </small>
                 </div>
             </fieldset>
+            <button type="button" class="outline contrast" onclick="resetSettings('schedule')" style="width:auto; font-size:0.8rem; padding:0.4rem 0.8rem;">デフォルトに戻す</button>
         </form>
         </div>
 
@@ -110,9 +138,25 @@
         <form id="automationSettingsForm" onsubmit="return false;">
             <fieldset>
                 <legend>パイプライン実行間隔</legend>
-                <label for="intervalMinutes">実行間隔（分）</label>
-                <input type="number" id="intervalMinutes" name="interval_minutes" value="15" min="0" max="1440" step="1">
-                <small>観測時間帯内にこの間隔でパイプラインを自動実行します。0 でスケジューラを無効化。</small>
+                <label for="intervalMinutes">実行間隔</label>
+                <select id="intervalMinutes" name="interval_minutes" onchange="toggleIntervalWarning()">
+                    <option value="0">無効（スケジューラ停止）</option>
+                    <option value="10">10分</option>
+                    <option value="15">15分</option>
+                    <option value="20">20分</option>
+                    <option value="25">25分</option>
+                    <option value="30">30分</option>
+                    <option value="45">45分</option>
+                    <option value="60" selected>1時間</option>
+                    <option value="120">2時間</option>
+                    <option value="180">3時間</option>
+                    <option value="360">6時間</option>
+                    <option value="720">12時間</option>
+                </select>
+                <small>観測時間帯内にこの間隔でパイプラインを自動実行します。</small>
+                <div id="intervalWarning" style="display:none; margin-top:0.5rem; padding:0.6rem 0.8rem; background:var(--pico-mark-background-color, #fff3cd); border-radius:4px; font-size:0.8rem; line-height:1.5;">
+                    <strong>&#9888; 注意:</strong> ネットワーク障害やクリップ数が多い場合、パイプライン実行が設定間隔を超えることがあります。実行が完了しないまま次のサイクルに入ると、そのサイクルはスキップされます。通常運用では20分以上を推奨します。
+                </div>
             </fieldset>
 
             <fieldset>
@@ -130,11 +174,12 @@
                         <span>次回予定:</span>
                         <span id="schedulerNextRun">-</span>
                     </div>
-                    <button type="button" class="secondary outline" onclick="refreshSchedulerStatus()" style="margin-top: 0.5rem;">
+                    <button type="button" class="secondary outline" onclick="refreshSchedulerStatus()" style="margin-top: 0.5rem; width: auto;">
                         状態を更新
                     </button>
                 </div>
             </fieldset>
+            <button type="button" class="outline contrast" onclick="resetSettings('schedule')" style="width:auto; font-size:0.8rem; padding:0.4rem 0.8rem;">デフォルトに戻す</button>
         </form>
         </div>
 
@@ -182,6 +227,7 @@
                     <input type="number" id="det-exclude-bottom-pct" min="0" max="50" step="0.1">
                     <small>exclude_bottom_pct（0〜50）</small>
                 </label>
+                <button type="button" class="outline contrast" onclick="resetSettings('detection')" style="width:auto; font-size:0.8rem; padding:0.4rem 0.8rem;">デフォルトに戻す</button>
             </form>
         </div>
 
@@ -197,24 +243,42 @@
                 <div id="rebootTimeFields">
                     <label for="rebootTime">再起動時刻</label>
                     <input type="time" id="rebootTime" value="12:00">
-                    <small>観測時間帯外に1日1回、指定時刻に再起動します。sudo 設定が必要です。</small>
+                    <small>観測時間帯外に1日1回、指定時刻にシステムを再起動します。</small>
                 </div>
             </fieldset>
+            <button type="button" class="outline contrast" onclick="resetSettings('system')" style="width:auto; font-size:0.8rem; padding:0.4rem 0.8rem;">デフォルトに戻す</button>
         </form>
         </div>
 
         </div>
 
         <footer style="flex-shrink: 0;">
-            <button class="secondary" onclick="document.getElementById('scheduleSettingsDialog').close()">キャンセル</button>
-            <button onclick="saveSettings()">保存</button>
+            <button class="secondary" onclick="document.getElementById('scheduleSettingsDialog').close()">閉じる</button>
+            <button id="saveSettingsBtn" onclick="saveSettings()">保存</button>
         </footer>
     </article>
 </dialog>
 
 <script>
+/* ── トースト通知 ────────────────────────────────── */
+function showToast(message, type) {
+    var dialog = document.getElementById('scheduleSettingsDialog');
+    var container = dialog.open
+        ? document.getElementById('dialog-toast-container')
+        : document.getElementById('toast-container');
+    var toast = document.createElement('div');
+    toast.className = 'toast ' + type;
+    var icon = type === 'success' ? '\u2713' : '\u2715';
+    toast.innerHTML = '<span class="toast-icon">' + icon + '</span><span>' + message + '</span>';
+    container.appendChild(toast);
+    setTimeout(function() {
+        toast.classList.add('removing');
+        setTimeout(function() { if (toast.parentNode) container.removeChild(toast); }, 300);
+    }, 4000);
+}
+
+/* ── タブ切り替え ────────────────────────────────── */
 function switchTab(tabName) {
-    // タブボタンのスタイル切り替え
     document.querySelectorAll('.settings-tabs .tab').forEach(function(btn) {
         if (btn.getAttribute('data-tab') === tabName) {
             btn.style.borderBottomColor = 'var(--pico-primary)';
@@ -228,7 +292,6 @@ function switchTab(tabName) {
             btn.classList.remove('active');
         }
     });
-    // タブパネルの表示切り替え
     document.querySelectorAll('.tab-panel').forEach(function(panel) {
         panel.style.display = 'none';
         panel.classList.remove('active');
@@ -240,30 +303,33 @@ function switchTab(tabName) {
     }
 }
 
+/* ── フィールド表示切り替え ──────────────────────── */
 function toggleStartFields() {
     var mode = document.getElementById('startMode').value;
-    document.getElementById('startFixedFields').style.display =
-        mode === 'fixed' ? '' : 'none';
-    document.getElementById('startOffsetFields').style.display =
-        mode === 'twilight_offset' ? '' : 'none';
+    document.getElementById('startFixedFields').style.display = mode === 'fixed' ? '' : 'none';
+    document.getElementById('startOffsetFields').style.display = mode === 'twilight_offset' ? '' : 'none';
 }
 
 function toggleEndFields() {
     var mode = document.getElementById('endMode').value;
-    document.getElementById('endFixedFields').style.display =
-        mode === 'fixed' ? '' : 'none';
-    document.getElementById('endOffsetFields').style.display =
-        mode === 'twilight_offset' ? '' : 'none';
+    document.getElementById('endFixedFields').style.display = mode === 'fixed' ? '' : 'none';
+    document.getElementById('endOffsetFields').style.display = mode === 'twilight_offset' ? '' : 'none';
 }
 
 function toggleLocationFields() {
     var mode = document.getElementById('locationMode').value;
-    document.getElementById('presetFields').style.display =
-        mode === 'preset' ? '' : 'none';
-    document.getElementById('customFields').style.display =
-        mode === 'custom' ? '' : 'none';
+    document.getElementById('presetFields').style.display = mode === 'preset' ? '' : 'none';
+    document.getElementById('customFields').style.display = mode === 'custom' ? '' : 'none';
 }
 
+/* ── 実行間隔の注意表示 ────────────────────────────── */
+function toggleIntervalWarning() {
+    var val = parseInt(document.getElementById('intervalMinutes').value, 10);
+    var warn = document.getElementById('intervalWarning');
+    warn.style.display = (val > 0 && val <= 15) ? '' : 'none';
+}
+
+/* ── スケジューラ状態 ────────────────────────────── */
 function refreshSchedulerStatus() {
     fetch('/api/scheduler/status')
         .then(function(r) { return r.json(); })
@@ -273,19 +339,18 @@ function refreshSchedulerStatus() {
             document.getElementById('schedulerStatusValue').textContent = statusText;
             document.getElementById('schedulerLastRun').textContent = s.last_run_at || '-';
             document.getElementById('schedulerLastResult').textContent = s.last_run_result || '-';
-            document.getElementById('schedulerLastDetections').textContent =
-                s.last_run_at ? String(s.last_run_detections) : '-';
+            document.getElementById('schedulerLastDetections').textContent = s.last_run_at ? String(s.last_run_detections) : '-';
             document.getElementById('schedulerNextRun').textContent = s.next_run_at || '-';
         });
 }
 
+/* ── 設定ダイアログ Open ─────────────────────────── */
 function openSettings() {
     var dialog = document.getElementById('scheduleSettingsDialog');
     dialog.showModal();
-    // 最初のタブをアクティブに
     switchTab('schedule');
+    document.getElementById('previewResult').style.display = 'none';
 
-    // 都道府県リストをロード
     fetch('/api/settings/prefectures')
         .then(function(r) { return r.json(); })
         .then(function(prefs) {
@@ -297,59 +362,65 @@ function openSettings() {
                 opt.textContent = p.name;
                 sel.appendChild(opt);
             });
-            // 全設定を並行ロード
-            return Promise.all([
-                fetch('/api/settings/schedule').then(function(r) { return r.json(); }),
-                fetch('/api/settings/detection').then(function(r) { return r.json(); }),
-                fetch('/api/settings/system').then(function(r) { return r.json(); }),
-            ]);
-        })
-        .then(function(results) {
-            // スケジュール設定
-            var s = results[0];
-            document.getElementById('startMode').value = s.start_mode || 'fixed';
-            document.getElementById('startTime').value = s.start_time || '22:00';
-            document.getElementById('startOffset').value = s.start_offset_minutes || '0';
-            document.getElementById('endMode').value = s.end_mode || 'fixed';
-            document.getElementById('endTime').value = s.end_time || '06:00';
-            document.getElementById('endOffset').value = s.end_offset_minutes || '0';
-            document.getElementById('locationMode').value = s.location_mode || 'preset';
-            if (s.prefecture) {
-                document.getElementById('prefecture').value = s.prefecture;
-            }
-            if (s.latitude) {
-                document.getElementById('latitude').value = s.latitude;
-            }
-            if (s.longitude) {
-                document.getElementById('longitude').value = s.longitude;
-            }
-            document.getElementById('intervalMinutes').value = s.interval_minutes || '15';
-            toggleStartFields();
-            toggleEndFields();
-            toggleLocationFields();
-
-            // 検出パラメータ
-            var d = results[1];
-            document.getElementById('det-min-line-length').value = d.min_line_length || '30';
-            document.getElementById('det-canny-threshold1').value = d.canny_threshold1 || '100';
-            document.getElementById('det-canny-threshold2').value = d.canny_threshold2 || '200';
-            document.getElementById('det-hough-threshold').value = d.hough_threshold || '25';
-            document.getElementById('det-max-line-gap').value = d.max_line_gap || '5';
-            document.getElementById('det-min-line-brightness').value = d.min_line_brightness || '20.0';
-            document.getElementById('det-exclude-bottom-pct').value = d.exclude_bottom_pct || '0';
-
-            // システム設定
-            var sys = results[2];
-            document.getElementById('rebootEnabled').checked =
-                (sys.reboot_enabled === 'true' || sys.reboot_enabled === '1');
-            document.getElementById('rebootTime').value = sys.reboot_time || '12:00';
+            return loadAllSettings();
         });
-    document.getElementById('previewResult').style.display = 'none';
-    // スケジューラ状態を更新
     refreshSchedulerStatus();
 }
 
+/* ── 全設定を UI にロード ────────────────────────── */
+function loadAllSettings() {
+    return Promise.all([
+        fetch('/api/settings/schedule').then(function(r) { return r.json(); }),
+        fetch('/api/settings/detection').then(function(r) { return r.json(); }),
+        fetch('/api/settings/system').then(function(r) { return r.json(); }),
+    ]).then(function(results) {
+        populateScheduleFields(results[0]);
+        populateDetectionFields(results[1]);
+        populateSystemFields(results[2]);
+    });
+}
+
+function populateScheduleFields(s) {
+    document.getElementById('startMode').value = s.start_mode || 'fixed';
+    document.getElementById('startTime').value = s.start_time || '22:00';
+    document.getElementById('startOffset').value = s.start_offset_minutes || '0';
+    document.getElementById('endMode').value = s.end_mode || 'fixed';
+    document.getElementById('endTime').value = s.end_time || '06:00';
+    document.getElementById('endOffset').value = s.end_offset_minutes || '0';
+    document.getElementById('locationMode').value = s.location_mode || 'preset';
+    document.getElementById('prefecture').value = s.prefecture || '';
+    document.getElementById('latitude').value = s.latitude || '';
+    document.getElementById('longitude').value = s.longitude || '';
+    document.getElementById('intervalMinutes').value = s.interval_minutes || '60';
+    toggleStartFields();
+    toggleEndFields();
+    toggleLocationFields();
+    toggleIntervalWarning();
+}
+
+function populateDetectionFields(d) {
+    document.getElementById('det-min-line-length').value = d.min_line_length;
+    document.getElementById('det-canny-threshold1').value = d.canny_threshold1;
+    document.getElementById('det-canny-threshold2').value = d.canny_threshold2;
+    document.getElementById('det-hough-threshold').value = d.hough_threshold;
+    document.getElementById('det-max-line-gap').value = d.max_line_gap;
+    document.getElementById('det-min-line-brightness').value = d.min_line_brightness;
+    document.getElementById('det-exclude-bottom-pct').value = d.exclude_bottom_pct;
+}
+
+function populateSystemFields(sys) {
+    document.getElementById('rebootEnabled').checked = (sys.reboot_enabled === 'true' || sys.reboot_enabled === '1');
+    document.getElementById('rebootTime').value = sys.reboot_time || '12:00';
+}
+
+/* ── 保存 ────────────────────────────────────────── */
 function saveSettings() {
+    var btn = document.getElementById('saveSettingsBtn');
+    var origText = btn.textContent;
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    btn.textContent = '保存中...';
+
     var scheduleData = {
         start_mode: document.getElementById('startMode').value,
         start_time: document.getElementById('startTime').value,
@@ -376,28 +447,66 @@ function saveSettings() {
         reboot_enabled: document.getElementById('rebootEnabled').checked ? 'true' : 'false',
         reboot_time: document.getElementById('rebootTime').value,
     };
+
+    function putWithDetail(url, data, label) {
+        return fetch(url, {
+            method: 'PUT',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(data),
+        }).then(function(r) {
+            if (!r.ok) return r.text().then(function(body) {
+                var detail = label;
+                try { detail = label + ': ' + JSON.parse(body).detail; } catch(e) {}
+                throw new Error(detail);
+            });
+            return r.json();
+        });
+    }
+
     Promise.all([
-        fetch('/api/settings/schedule', {
-            method: 'PUT',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(scheduleData),
-        }),
-        fetch('/api/settings/detection', {
-            method: 'PUT',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(detectionData),
-        }),
-        fetch('/api/settings/system', {
-            method: 'PUT',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(systemData),
-        }),
+        putWithDetail('/api/settings/schedule', scheduleData, 'スケジュール設定'),
+        putWithDetail('/api/settings/detection', detectionData, '検出パラメータ'),
+        putWithDetail('/api/settings/system', systemData, 'システム設定'),
     ])
     .then(function() {
-        document.getElementById('scheduleSettingsDialog').close();
+        btn.disabled = false;
+        btn.setAttribute('aria-busy', 'false');
+        btn.textContent = origText;
+        showToast('設定を保存しました', 'success');
+    })
+    .catch(function(err) {
+        btn.disabled = false;
+        btn.setAttribute('aria-busy', 'false');
+        btn.textContent = origText;
+        showToast('保存に失敗しました: ' + err.message, 'error');
+        console.error('Settings save error:', err);
     });
 }
 
+/* ── デフォルトにリセット ────────────────────────── */
+function resetSettings(category) {
+    var labels = { schedule: '観測スケジュール・自動実行', detection: '検出パラメータ', system: 'システム' };
+    var label = labels[category] || category;
+    if (!confirm(label + ' の設定をデフォルトに戻しますか？')) return;
+
+    fetch('/api/settings/' + category, { method: 'DELETE' })
+        .then(function(r) {
+            if (!r.ok) throw new Error('リセット失敗');
+            return r.json();
+        })
+        .then(function() {
+            showToast(label + ' をデフォルトに戻しました', 'success');
+            return loadAllSettings();
+        })
+        .then(function() {
+            refreshSchedulerStatus();
+        })
+        .catch(function(err) {
+            showToast('リセットに失敗しました: ' + err.message, 'error');
+        });
+}
+
+/* ── プレビュー ──────────────────────────────────── */
 function previewSchedule() {
     var data = {
         start_mode: document.getElementById('startMode').value,

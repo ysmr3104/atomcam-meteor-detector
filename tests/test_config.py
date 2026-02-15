@@ -66,7 +66,7 @@ class TestScheduleConfig:
 
     def test_interval_minutes_default(self):
         config = ScheduleConfig()
-        assert config.interval_minutes == 15
+        assert config.interval_minutes == 60
 
     def test_interval_minutes_zero(self):
         config = ScheduleConfig(interval_minutes=0)
