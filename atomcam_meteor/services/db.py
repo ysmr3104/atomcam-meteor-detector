@@ -78,6 +78,10 @@ _MIGRATE_EXCLUDED = (
     "ALTER TABLE clips ADD COLUMN excluded INTEGER DEFAULT 0;"
 )
 
+_MIGRATE_NIGHT_HIDDEN = (
+    "ALTER TABLE night_outputs ADD COLUMN hidden INTEGER DEFAULT 0;"
+)
+
 
 def init_db(db_path: Path) -> sqlite3.Connection:
     """Create or open the database, enable WAL mode, and create tables."""
@@ -104,6 +108,15 @@ def _migrate(conn: sqlite3.Connection) -> None:
         conn.execute(_MIGRATE_EXCLUDED)
         conn.commit()
         logger.info("Migrated: added 'excluded' column to clips table")
+
+    night_columns = {
+        row[1]
+        for row in conn.execute("PRAGMA table_info(night_outputs);").fetchall()
+    }
+    if "hidden" not in night_columns:
+        conn.execute(_MIGRATE_NIGHT_HIDDEN)
+        conn.commit()
+        logger.info("Migrated: added 'hidden' column to night_outputs table")
 
 
 class ClipRepository:
@@ -365,6 +378,29 @@ class NightOutputRepository:
             "SELECT * FROM night_outputs ORDER BY date_str DESC"
         ).fetchall()
         return [dict(r) for r in rows]
+
+    def toggle_hidden(self, date_str: str, hidden: bool) -> None:
+        """Set the hidden flag for a night."""
+        self._conn.execute(
+            "UPDATE night_outputs SET hidden = ?, last_updated_at = datetime('now') "
+            "WHERE date_str = ?",
+            (int(hidden), date_str),
+        )
+        self._conn.commit()
+
+    def get_visible_nights(self) -> list[dict]:
+        """Return only visible (non-hidden) night output records."""
+        rows = self._conn.execute(
+            "SELECT * FROM night_outputs WHERE hidden = 0 ORDER BY date_str DESC"
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def count_hidden(self) -> int:
+        """Return the number of hidden nights."""
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS cnt FROM night_outputs WHERE hidden = 1"
+        ).fetchone()
+        return row["cnt"] if row else 0
 
 
 class SettingsRepository:

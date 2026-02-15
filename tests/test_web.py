@@ -273,6 +273,55 @@ class TestDetectionAPI:
         assert resp.status_code == 400
 
 
+class TestNightVisibilityAPI:
+    def test_toggle_night_visibility(self, client, seeded_db):
+        """hidden=true/false の往復"""
+        # 非表示にする
+        resp = client.patch(
+            "/api/nights/20250101/visibility", json={"hidden": True},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["hidden"] is True
+
+        # 表示に戻す
+        resp = client.patch(
+            "/api/nights/20250101/visibility", json={"hidden": False},
+        )
+        assert resp.status_code == 200
+        assert resp.json()["hidden"] is False
+
+    def test_toggle_night_visibility_missing_field(self, client, seeded_db):
+        """hidden フィールドがない場合に 400 を返す"""
+        resp = client.patch(
+            "/api/nights/20250101/visibility", json={"other": True},
+        )
+        assert resp.status_code == 400
+
+    def test_toggle_night_visibility_not_found(self, client):
+        """存在しない夜で 404 を返す"""
+        resp = client.patch(
+            "/api/nights/99991231/visibility", json={"hidden": True},
+        )
+        assert resp.status_code == 404
+
+    def test_index_hidden_count(self, client, seeded_db):
+        """非表示にした夜の件数がテンプレートに含まれること"""
+        # 非表示にする
+        client.patch(
+            "/api/nights/20250101/visibility", json={"hidden": True},
+        )
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert "hidden-count" in resp.text
+        assert "1件" in resp.text or ">1<" in resp.text
+
+    def test_index_no_hidden_label_when_zero(self, client, seeded_db):
+        """非表示が0件の場合、チェックボックスが表示されないこと"""
+        resp = client.get("/")
+        assert resp.status_code == 200
+        assert "非表示の夜を表示" not in resp.text
+
+
 class TestSettingsAPI:
     def test_get_schedule_defaults(self, client):
         """デフォルト設定が返ること"""

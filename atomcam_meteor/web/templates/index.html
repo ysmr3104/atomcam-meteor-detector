@@ -3,9 +3,24 @@
 {% block content %}
 <h1>Detection Nights</h1>
 {% if nights %}
+{% if hidden_count > 0 %}
+<label style="display:inline-flex; align-items: center; gap: 0.5rem; margin-bottom: 1rem; cursor: pointer;">
+    <input type="checkbox" id="show-hidden" onchange="toggleHiddenNights(this.checked)">
+    非表示の夜を表示（<span id="hidden-count">{{ hidden_count }}</span>件）
+</label>
+{% endif %}
 <div class="clip-grid">
     {% for night in nights %}
-    <a href="/nights/{{ night.date_str }}" class="night-card">
+    <a href="/nights/{{ night.date_str }}"
+       class="night-card{% if night.hidden %} hidden{% endif %}"
+       data-date="{{ night.date_str }}"
+       data-hidden="{{ night.hidden or 0 }}"
+       {% if night.hidden %}style="display:none"{% endif %}>
+        <button type="button" class="visibility-btn"
+                onclick="event.preventDefault(); event.stopPropagation(); toggleVisibility('{{ night.date_str }}', this)"
+                title="{% if night.hidden %}表示する{% else %}非表示にする{% endif %}">
+            {% if night.hidden %}&#128065;&#8288;&#8725;{% else %}&#128065;{% endif %}
+        </button>
         {% if night.composite_url %}
         <img src="{{ night.composite_url }}" alt="Composite {{ night.date_str }}" loading="lazy">
         {% endif %}
@@ -19,4 +34,70 @@
 {% else %}
 <p>No detection data available yet. Run <code>atomcam run</code> to start detecting.</p>
 {% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+function toggleHiddenNights(show) {
+    document.querySelectorAll('.night-card[data-hidden="1"]').forEach(card => {
+        card.style.display = show ? '' : 'none';
+    });
+}
+
+function toggleVisibility(dateStr, btn) {
+    const card = btn.closest('.night-card');
+    const isHidden = card.dataset.hidden === '1';
+    const newHidden = !isHidden;
+
+    fetch(`/api/nights/${dateStr}/visibility`, {
+        method: 'PATCH',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({hidden: newHidden}),
+    })
+    .then(r => { if (!r.ok) throw new Error('API error'); return r.json(); })
+    .then(data => {
+        card.dataset.hidden = data.hidden ? '1' : '0';
+        if (data.hidden) {
+            card.classList.add('hidden');
+            btn.innerHTML = '&#128065;&#8288;&#8725;';
+            btn.title = '表示する';
+        } else {
+            card.classList.remove('hidden');
+            btn.innerHTML = '&#128065;';
+            btn.title = '非表示にする';
+        }
+
+        // 非表示件数の更新
+        const hiddenCards = document.querySelectorAll('.night-card[data-hidden="1"]');
+        const count = hiddenCards.length;
+        const countSpan = document.getElementById('hidden-count');
+        const checkbox = document.getElementById('show-hidden');
+
+        if (count > 0) {
+            if (countSpan) {
+                countSpan.textContent = count;
+            } else {
+                // チェックボックスがまだない場合、ページをリロード
+                location.reload();
+                return;
+            }
+        }
+
+        // 非表示チェックボックスが未チェックの場合、非表示カードを隠す
+        if (data.hidden && checkbox && !checkbox.checked) {
+            card.style.display = 'none';
+        }
+        if (!data.hidden) {
+            card.style.display = '';
+        }
+
+        // 非表示件数が0になったらラベルを非表示
+        if (count === 0 && countSpan) {
+            countSpan.closest('label').style.display = 'none';
+        } else if (count > 0 && countSpan) {
+            countSpan.closest('label').style.display = '';
+        }
+    })
+    .catch(() => alert('非表示の切り替えに失敗しました'));
+}
+</script>
 {% endblock %}

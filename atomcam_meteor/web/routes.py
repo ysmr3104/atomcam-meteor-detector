@@ -84,8 +84,11 @@ def index_page(
         else:
             night["composite_url"] = None
         night["last_updated_jst"] = _utc_to_jst(night.get("last_updated_at"))
+    hidden_count = sum(1 for n in nights if n.get("hidden"))
     templates = request.app.state.templates
-    return templates.TemplateResponse(request, "index.html", {"nights": nights})
+    return templates.TemplateResponse(
+        request, "index.html", {"nights": nights, "hidden_count": hidden_count},
+    )
 
 
 @router.get("/nights/{date_str}", response_class=HTMLResponse)
@@ -209,6 +212,23 @@ def night_page(
 
 
 # ── JSON API ────────────────────────────────────────────────────────────
+
+@router.patch("/api/nights/{date_str}/visibility")
+def api_toggle_night_visibility(
+    date_str: str,
+    body: dict,
+    db: StateDB = Depends(get_db),
+) -> dict:
+    """Toggle the hidden status of a night."""
+    if "hidden" not in body:
+        raise HTTPException(status_code=400, detail="'hidden' field required")
+    hidden = bool(body["hidden"])
+    night = db.nights.get_output(date_str)
+    if night is None:
+        raise HTTPException(status_code=404, detail="Night not found")
+    db.nights.toggle_hidden(date_str, hidden)
+    return {"date_str": date_str, "hidden": hidden}
+
 
 @router.get("/api/nights")
 def api_nights(db: StateDB = Depends(get_db)) -> list[dict]:

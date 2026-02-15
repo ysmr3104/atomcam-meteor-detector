@@ -91,7 +91,8 @@
             border-radius: var(--pico-border-radius);
             padding: 1rem;
             margin-bottom: 1rem;
-            transition: background 0.2s;
+            transition: background 0.2s, opacity 0.2s;
+            position: relative;
         }
         .night-card:hover {
             background: var(--pico-card-background-color);
@@ -103,6 +104,16 @@
             border-radius: var(--pico-border-radius);
             margin-bottom: 0.5rem;
         }
+        .night-card.hidden { opacity: 0.4; }
+        .visibility-btn {
+            position: absolute; top: 0.5rem; right: 0.5rem;
+            background: rgba(0,0,0,0.5); border: none; border-radius: 50%;
+            width: 2rem; height: 2rem; cursor: pointer;
+            color: #fff; font-size: 0.9rem; padding: 0;
+            display: flex; align-items: center; justify-content: center;
+            z-index: 1;
+        }
+        .visibility-btn:hover { background: rgba(0,0,0,0.7); }
     </style>
 </head>
 <body>
