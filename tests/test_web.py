@@ -503,6 +503,69 @@ class TestDetectionSettingsAPI:
         assert resp.status_code == 400
 
 
+class TestGeolocateAPI:
+    def test_geolocate_success(self, client, monkeypatch):
+        """IP ジオロケーションで都道府県が返ること"""
+        import httpx
+
+        class FakeResponse:
+            status_code = 200
+            def json(self):
+                return {
+                    "status": "success",
+                    "regionName": "福岡県",
+                    "lat": 33.6064,
+                    "lon": 130.4183,
+                }
+            def raise_for_status(self):
+                pass
+
+        monkeypatch.setattr(httpx, "get", lambda *a, **kw: FakeResponse())
+
+        resp = client.get("/api/settings/geolocate")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["prefecture"] == "福岡県"
+        assert data["latitude"] == 33.6064
+        assert data["longitude"] == 130.4183
+
+    def test_geolocate_no_prefecture_match(self, client, monkeypatch):
+        """都道府県に一致しない地域ではカスタム座標が返ること"""
+        import httpx
+
+        class FakeResponse:
+            status_code = 200
+            def json(self):
+                return {
+                    "status": "success",
+                    "regionName": "Guam",
+                    "lat": 13.4443,
+                    "lon": 144.7937,
+                }
+            def raise_for_status(self):
+                pass
+
+        monkeypatch.setattr(httpx, "get", lambda *a, **kw: FakeResponse())
+
+        resp = client.get("/api/settings/geolocate")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["prefecture"] is None
+        assert data["latitude"] == 13.4443
+
+    def test_geolocate_api_failure(self, client, monkeypatch):
+        """外部 API 失敗時に 502 が返ること"""
+        import httpx
+
+        def raise_error(*a, **kw):
+            raise httpx.ConnectError("Connection refused")
+
+        monkeypatch.setattr(httpx, "get", raise_error)
+
+        resp = client.get("/api/settings/geolocate")
+        assert resp.status_code == 502
+
+
 class TestResetSettingsAPI:
     def test_reset_schedule(self, client):
         """スケジュール設定のリセット"""

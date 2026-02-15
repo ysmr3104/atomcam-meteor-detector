@@ -5,6 +5,8 @@ Raspberry Piで運用すれば毎晩1時間毎など定期的に検出し、朝�
 
 ## Getting Started
 
+ATOM Cam に [atomcam_tools](https://github.com/mnakada/atomcam_tools) を導入し、SD カード録画への HTTP アクセスを有効にしてください。
+
 セットアップ手順は [docs/setup.md](docs/setup.md) を参照してください。
 
 - [PC 環境でのセットアップ](docs/setup.md#pc-環境でのセットアップ)
