@@ -123,6 +123,83 @@
         .toast.removing { animation: toastSlideOut 0.3s ease-in forwards; }
         @keyframes toastSlideIn  { from { transform:translateX(400px); opacity:0; } to { transform:translateX(0); opacity:1; } }
         @keyframes toastSlideOut { from { transform:translateX(0); opacity:1; } to { transform:translateX(400px); opacity:0; } }
+
+        /* モーダルビューアー */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: modalFadeIn 0.2s ease-out;
+        }
+        .modal-overlay.closing {
+            animation: modalFadeOut 0.2s ease-in forwards;
+        }
+        @keyframes modalFadeIn  { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes modalFadeOut { from { opacity: 1; } to { opacity: 0; } }
+        .modal-image {
+            max-width: 90vw;
+            max-height: 85vh;
+            object-fit: contain;
+            border-radius: 4px;
+            user-select: none;
+        }
+        .modal-close {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            background: none;
+            border: none;
+            color: #fff;
+            font-size: 2.5rem;
+            cursor: pointer;
+            z-index: 1002;
+            line-height: 1;
+            padding: 0.25rem 0.5rem;
+            margin: 0;
+        }
+        .modal-close:hover { color: #ccc; }
+        .modal-nav {
+            position: fixed;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            color: #fff;
+            font-size: 2.5rem;
+            cursor: pointer;
+            z-index: 1002;
+            padding: 1rem 0.75rem;
+            margin: 0;
+            line-height: 1;
+            border-radius: 4px;
+            transition: background 0.2s;
+        }
+        .modal-nav:hover { background: rgba(255, 255, 255, 0.25); }
+        .modal-prev { left: 1rem; }
+        .modal-next { right: 1rem; }
+        .modal-meta {
+            position: fixed;
+            bottom: 1rem;
+            left: 50%;
+            transform: translateX(-50%);
+            color: #ddd;
+            font-size: 0.9rem;
+            text-align: center;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            z-index: 1002;
+            white-space: nowrap;
+        }
+        @media (max-width: 600px) {
+            .modal-nav { font-size: 2rem; padding: 1.5rem 0.5rem; }
+            .modal-close { font-size: 2rem; }
+            .modal-meta { font-size: 0.8rem; }
+        }
     </style>
 </head>
 <body>
