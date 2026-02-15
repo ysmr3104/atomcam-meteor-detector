@@ -71,23 +71,6 @@ ATOM Cam の動画から流星を自動検出し、比較明合成画像と結�
 | [docs/testing.md](docs/testing.md) | テスト規約 |
 | [docs/reference-comparison-kin-hasegawa.md](docs/reference-comparison-kin-hasegawa.md) | kin-hasegawa/meteor-detect との比較 |
 
-## Development
-
-```bash
-# 開発用依存パッケージのインストール
-uv sync --group dev
-
-# テスト実行
-uv run pytest
-
-# カバレッジ付き
-uv run pytest --cov=atomcam_meteor --cov-report=html
-
-# コード品質
-uv run ruff check atomcam_meteor/
-uv run mypy atomcam_meteor/
-```
-
 ## License
 
 MIT
