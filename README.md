@@ -1,6 +1,7 @@
 # atomcam-meteor-detector
 
 ATOM Cam の動画から流星を自動検出し、比較明合成画像と結合動画を生成するツール。
+Raspberry Piで運用すれば毎晩1時間毎など定期的に検出し、朝になったら一晩分の比較明合成された画像を取得することが可能です。
 
 ## Getting Started
 
