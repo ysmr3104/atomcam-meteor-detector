@@ -306,9 +306,9 @@ After=network.target
 
 [Service]
 Type=simple
-User=ysmr3104
-WorkingDirectory=/home/ysmr3104/atomcam-meteor-detector
-ExecStart=/home/ysmr3104/.local/bin/uv run atomcam serve -c config/settings.yaml
+User=<ユーザー名>
+WorkingDirectory=/home/<ユーザー名>/atomcam-meteor-detector
+ExecStart=/home/<ユーザー名>/.local/bin/uv run atomcam serve -c config/settings.yaml
 Restart=on-failure
 RestartSec=5
 
