@@ -58,6 +58,7 @@
         </p>
     </hgroup>
 
+    {% set modal_counter = namespace(index=0) %}
     <div class="clip-grid">
         {% for clip in clips %}
         {% if clip.status == 'detected' %}
@@ -65,9 +66,9 @@
         {% for det in clip.detections %}
         {% if det.crop_url %}
         <div class="clip-card{% if det.excluded %} excluded{% endif %}" data-detection-id="{{ det.id }}">
-            <a href="{{ det.crop_url }}" target="_blank">
-                <img src="{{ det.crop_url }}" alt="Line {{ det.line_index + 1 }}" loading="lazy">
-            </a>
+            <img src="{{ det.crop_url }}" alt="Line {{ det.line_index + 1 }}" loading="lazy"
+                 style="cursor:pointer" data-modal-index="{{ modal_counter.index }}"
+                 onclick="openModal({{ modal_counter.index }})">
             <div class="meta">
                 <strong>{{ clip.actual_datetime }}</strong>
                 | line {{ det.line_index + 1 }}/{{ clip.detections|length }}
@@ -80,23 +81,33 @@
             </button>
             {% endif %}
         </div>
+        {% set modal_counter.index = modal_counter.index + 1 %}
         {% endif %}
         {% endfor %}
         {% elif clip.image_url %}
         <div class="clip-card" data-clip-id="{{ clip.id }}">
-            <a href="{{ clip.image_url }}" target="_blank">
-                <img src="{{ clip.image_url }}" alt="Detection {{ clip.actual_datetime }}" loading="lazy">
-            </a>
+            <img src="{{ clip.image_url }}" alt="Detection {{ clip.actual_datetime }}" loading="lazy"
+                 style="cursor:pointer" data-modal-index="{{ modal_counter.index }}"
+                 onclick="openModal({{ modal_counter.index }})">
             <div class="meta">
                 <strong>{{ clip.actual_datetime }}:00</strong>
                 | {{ clip.line_count }} line(s)
             </div>
         </div>
+        {% set modal_counter.index = modal_counter.index + 1 %}
         {% endif %}
         {% endif %}
         {% endfor %}
     </div>
 </section>
+
+<div id="image-modal" class="modal-overlay" style="display:none" onclick="closeModal(event)">
+    <button class="modal-close" onclick="closeModal(event)">&times;</button>
+    <button id="modal-prev-btn" class="modal-nav modal-prev" onclick="navigateModal(-1, event)">&lsaquo;</button>
+    <img id="modal-img" src="" alt="" class="modal-image" onclick="event.stopPropagation()">
+    <button id="modal-next-btn" class="modal-nav modal-next" onclick="navigateModal(1, event)">&rsaquo;</button>
+    <div id="modal-meta" class="modal-meta"></div>
+</div>
 {% endblock %}
 
 {% block scripts %}
@@ -354,6 +365,77 @@ async function checkRedetectOnLoad() {
     }
 }
 document.addEventListener('DOMContentLoaded', checkRedetectOnLoad);
+
+// モーダルビューアー
+const modalImages = [
+    {% set mi = namespace(index=0) %}
+    {% for clip in clips %}
+    {% if clip.status == 'detected' %}
+    {% if clip.detections %}
+    {% for det in clip.detections %}
+    {% if det.crop_url %}
+    {url: "{{ det.crop_url }}", meta: "{{ clip.actual_datetime }} | line {{ det.line_index + 1 }}/{{ clip.detections|length }}{% if det.detection_time %} ({{ det.detection_time }}){% endif %}"},
+    {% set mi.index = mi.index + 1 %}
+    {% endif %}
+    {% endfor %}
+    {% elif clip.image_url %}
+    {url: "{{ clip.image_url }}", meta: "{{ clip.actual_datetime }}:00 | {{ clip.line_count }} line(s)"},
+    {% set mi.index = mi.index + 1 %}
+    {% endif %}
+    {% endif %}
+    {% endfor %}
+];
+
+let currentModalIndex = 0;
+
+function openModal(index) {
+    currentModalIndex = index;
+    const modal = document.getElementById('image-modal');
+    const img = document.getElementById('modal-img');
+    const meta = document.getElementById('modal-meta');
+    img.src = modalImages[index].url;
+    meta.textContent = modalImages[index].meta;
+    modal.style.display = '';
+    modal.classList.remove('closing');
+    document.body.style.overflow = 'hidden';
+    updateNavButtons();
+}
+
+function closeModal(event) {
+    if (event) event.stopPropagation();
+    const modal = document.getElementById('image-modal');
+    modal.classList.add('closing');
+    setTimeout(() => {
+        modal.style.display = 'none';
+        modal.classList.remove('closing');
+        document.body.style.overflow = '';
+    }, 200);
+}
+
+function navigateModal(direction, event) {
+    if (event) event.stopPropagation();
+    const newIndex = currentModalIndex + direction;
+    if (newIndex < 0 || newIndex >= modalImages.length) return;
+    currentModalIndex = newIndex;
+    const img = document.getElementById('modal-img');
+    const meta = document.getElementById('modal-meta');
+    img.src = modalImages[currentModalIndex].url;
+    meta.textContent = modalImages[currentModalIndex].meta;
+    updateNavButtons();
+}
+
+function updateNavButtons() {
+    document.getElementById('modal-prev-btn').style.display = currentModalIndex <= 0 ? 'none' : '';
+    document.getElementById('modal-next-btn').style.display = currentModalIndex >= modalImages.length - 1 ? 'none' : '';
+}
+
+document.addEventListener('keydown', function(e) {
+    const modal = document.getElementById('image-modal');
+    if (modal.style.display === 'none') return;
+    if (e.key === 'Escape') closeModal(e);
+    else if (e.key === 'ArrowLeft') navigateModal(-1, e);
+    else if (e.key === 'ArrowRight') navigateModal(1, e);
+});
 
 async function toggleNightVisibility() {
     const btn = document.getElementById('hide-night-btn');
