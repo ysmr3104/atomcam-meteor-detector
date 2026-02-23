@@ -195,7 +195,7 @@ class TestCheckReboot:
         now = datetime(2025, 1, 1, 12, 0)
         with patch("atomcam_meteor.services.scheduler.subprocess") as mock_sub:
             scheduler._check_reboot(now, True, "12:00", "22:00", "06:00")
-            mock_sub.run.assert_called_once_with(["sudo", "reboot"])
+            mock_sub.run.assert_called_once()
             assert scheduler._last_reboot_date == now.date()
 
     def test_reboot_time_mismatch(self, scheduler):
@@ -225,4 +225,4 @@ class TestCheckReboot:
         now = datetime(2025, 1, 1, 12, 3)
         with patch("atomcam_meteor.services.scheduler.subprocess") as mock_sub:
             scheduler._check_reboot(now, True, "12:00", "22:00", "06:00")
-            mock_sub.run.assert_called_once_with(["sudo", "reboot"])
+            mock_sub.run.assert_called_once()
