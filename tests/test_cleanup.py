@@ -270,6 +270,87 @@ class TestDeleteNightDownloads:
         db.close()
 
 
+    def test_delete_orphaned_files(self, cleanup_env):
+        """DB 未登録のファイル（観測範囲外クリップ）も削除される。"""
+        config, db, download_dir = cleanup_env
+
+        # スケジュールを 22:00〜06:03 に設定（薄明計算で端数分が出るケース）
+        # これにより hour 06 がダウンロード対象になるが、
+        # 06:03 以降のクリップは DB に登録されず孤立する
+        db.settings.set_many({
+            "schedule.start_time": "22:00",
+            "schedule.end_time": "06:03",
+        })
+        db.nights.upsert_output("20250110", detection_count=1)
+
+        # DB に登録されたクリップ（観測範囲内）
+        tracked_dir = download_dir / "20250110" / "02"
+        tracked_dir.mkdir(parents=True, exist_ok=True)
+        tracked_file = tracked_dir / "30.mp4"
+        tracked_file.write_bytes(b"\x00" * 1024)
+        db.clips.upsert_clip(
+            "http://cam/20250110/02/30.mp4", "20250110", 2, 30,
+            local_path=str(tracked_file),
+            status=ClipStatus.DETECTED,
+        )
+
+        # DB 未登録のファイル（パイプラインがダウンロードしたが観測範囲外）
+        # 06:30 は end_time=06:00 の範囲外
+        orphan_dir = download_dir / "20250110" / "06"
+        orphan_dir.mkdir(parents=True, exist_ok=True)
+        orphan1 = orphan_dir / "30.mp4"
+        orphan1.write_bytes(b"\x00" * 2048)
+        orphan2 = orphan_dir / "45.mp4"
+        orphan2.write_bytes(b"\x00" * 2048)
+
+        # 前日夕方の DB 未登録ファイル
+        prev_orphan_dir = download_dir / "20250109" / "22"
+        prev_orphan_dir.mkdir(parents=True, exist_ok=True)
+        orphan3 = prev_orphan_dir / "15.mp4"
+        orphan3.write_bytes(b"\x00" * 512)
+
+        service = CleanupService(config, db)
+        bytes_freed = service.delete_night_downloads("20250110")
+
+        # DB 登録ファイル + 孤立ファイルすべてが削除されている
+        assert not tracked_file.exists()
+        assert not orphan1.exists()
+        assert not orphan2.exists()
+        assert not orphan3.exists()
+        # 合計バイト数 = 1024 + 2048 + 2048 + 512
+        assert bytes_freed == 1024 + 2048 + 2048 + 512
+        db.close()
+
+    def test_delete_orphaned_files_no_schedule_fallback(self, cleanup_env):
+        """スケジュール解決に失敗しても DB 登録ファイルは削除される。"""
+        config, db, download_dir = cleanup_env
+
+        tracked_dir = download_dir / "20250110" / "02"
+        tracked_dir.mkdir(parents=True, exist_ok=True)
+        tracked_file = tracked_dir / "30.mp4"
+        tracked_file.write_bytes(b"\x00" * 1024)
+
+        db.clips.upsert_clip(
+            "http://cam/20250110/02/30.mp4", "20250110", 2, 30,
+            local_path=str(tracked_file),
+            status=ClipStatus.DETECTED,
+        )
+        db.nights.upsert_output("20250110", detection_count=1)
+
+        # resolve_schedule をモックして例外を投げさせる
+        with patch(
+            "atomcam_meteor.services.schedule_resolver.resolve_schedule",
+            side_effect=Exception("schedule error"),
+        ):
+            service = CleanupService(config, db)
+            bytes_freed = service.delete_night_downloads("20250110")
+
+        # DB 登録ファイルは削除されている
+        assert not tracked_file.exists()
+        assert bytes_freed == 1024
+        db.close()
+
+
 class TestStorageInfo:
     def test_get_storage_info(self, cleanup_env):
         """ストレージ情報が返される。"""

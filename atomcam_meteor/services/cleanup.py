@@ -57,9 +57,14 @@ class CleanupService:
         return CleanupResult()
 
     def delete_night_downloads(self, date_str: str) -> int:
-        """特定の夜のダウンロード MP4 をすべて削除する。"""
+        """特定の夜のダウンロード MP4 をすべて削除する。
+
+        DB に登録されたファイルに加え、パイプラインがダウンロードしたが
+        観測範囲外で DB 未登録のファイルもファイルシステムスキャンで削除する。
+        """
         clips = self._db.clips.get_clips_with_local_path(date_str)
         total_freed = 0
+        deleted_paths: set[Path] = set()
 
         for clip in clips:
             local_path = Path(clip["local_path"])
@@ -68,13 +73,17 @@ class CleanupService:
             if local_path.exists():
                 total_freed += local_path.stat().st_size
                 local_path.unlink()
+                deleted_paths.add(local_path.resolve())
                 logger.debug("削除: %s", local_path)
-
-        # 空ディレクトリを除去
-        self._remove_empty_dirs(self._download_dir)
 
         # DB の local_path をクリア
         self._db.clips.clear_local_paths(date_str)
+
+        # ファイルシステムスキャンで DB 未登録の残存ファイルも削除
+        total_freed += self._delete_orphaned_files(date_str, deleted_paths)
+
+        # 空ディレクトリを除去
+        self._remove_empty_dirs(self._download_dir)
 
         return total_freed
 
@@ -162,6 +171,71 @@ class CleanupService:
                 logger.info("クリーンアップ: %s を削除 (%d bytes)", date_str, freed)
 
         return result
+
+    def _delete_orphaned_files(
+        self, date_str: str, already_deleted: set[Path],
+    ) -> int:
+        """観測夜のディレクトリに残存する DB 未登録ファイルを削除する。
+
+        パイプラインはアワーディレクトリ全体をダウンロードするが、観測範囲外の
+        クリップは DB に登録されない。この関数はそれらの孤立ファイルを削除する。
+        """
+        from atomcam_meteor.services.schedule_resolver import resolve_schedule
+
+        try:
+            start_time, end_time = resolve_schedule(
+                self._db.settings, self._config.schedule, date_str,
+            )
+        except Exception:
+            logger.warning("スケジュール解決に失敗、ディレクトリスキャンをスキップ")
+            return 0
+
+        dirs = self._build_night_dirs(date_str, start_time, end_time)
+        total_freed = 0
+
+        for dir_path in dirs:
+            if not dir_path.is_dir():
+                continue
+            for mp4 in dir_path.glob("*.mp4"):
+                if mp4.resolve() in already_deleted:
+                    continue
+                if not self._is_safe_path(mp4):
+                    continue
+                total_freed += mp4.stat().st_size
+                mp4.unlink()
+                logger.debug("残存ファイル削除: %s", mp4)
+
+        return total_freed
+
+    def _build_night_dirs(
+        self, date_str: str, start_time: str, end_time: str,
+    ) -> list[Path]:
+        """観測夜に対応するダウンロードディレクトリのリストを返す。
+
+        Pipeline._build_time_slots() と同じロジックでディレクトリを特定する。
+        """
+        target = datetime.strptime(date_str, "%Y%m%d")
+        prev_day = (target - timedelta(days=1)).strftime("%Y%m%d")
+
+        start_h = int(start_time.split(":")[0])
+        end_h = int(end_time.split(":")[0])
+        end_m = int(end_time.split(":")[1])
+        start_total = start_h * 60 + int(start_time.split(":")[1])
+        end_total = end_h * 60 + end_m
+
+        dirs: list[Path] = []
+        if start_total >= end_total:  # 日付またぎ（例: 22:00→06:00）
+            for h in range(start_h, 24):
+                dirs.append(self._download_dir / prev_day / f"{h:02d}")
+            end_h_inclusive = end_h + 1 if end_m > 0 else end_h
+            for h in range(0, end_h_inclusive):
+                dirs.append(self._download_dir / date_str / f"{h:02d}")
+        else:  # 同日内
+            end_h_inclusive = end_h + 1 if end_m > 0 else end_h
+            for h in range(start_h, end_h_inclusive):
+                dirs.append(self._download_dir / date_str / f"{h:02d}")
+
+        return dirs
 
     def _is_safe_path(self, path: Path) -> bool:
         """削除対象がダウンロードディレクトリ配下であることを確認する。"""
