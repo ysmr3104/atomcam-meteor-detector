@@ -368,4 +368,12 @@ class TestStorageInfo:
         assert info["downloads_size"] > 0
         assert "night_sizes" in info
         assert len(info["night_sizes"]) >= 1
+        # 推奨保持日数
+        assert "recommended_retention_days" in info
+        assert isinstance(info["recommended_retention_days"], int)
+        assert 3 <= info["recommended_retention_days"] <= 90
+        # 1夜平均サイズ
+        assert "avg_night_size" in info
+        assert isinstance(info["avg_night_size"], int)
+        assert info["avg_night_size"] > 0
         db.close()

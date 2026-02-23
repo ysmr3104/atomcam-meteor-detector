@@ -624,7 +624,7 @@ class TestCleanupSettingsAPI:
         assert data["mode"] == "disabled"
         assert data["min_free_gb"] == "10"
         assert data["min_free_pct"] == "20"
-        assert data["retention_days"] == "30"
+        assert data["retention_days"] == "7"
 
     def test_put_and_get_cleanup(self, client):
         """クリーンアップ設定の保存と取得"""

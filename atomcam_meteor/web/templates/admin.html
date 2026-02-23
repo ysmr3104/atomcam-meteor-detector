@@ -271,9 +271,10 @@
             <div id="cleanupRetentionDaysFields" style="display:none;">
                 <label for="cleanupRetentionDays">保持日数</label>
                 <div style="display:flex; align-items:center; gap:0.5rem;">
-                    <input type="number" id="cleanupRetentionDays" min="1" max="365" step="1" value="30" style="width:auto;">
+                    <input type="number" id="cleanupRetentionDays" min="1" max="365" step="1" value="7" style="width:auto;">
                     <span>日</span>
                 </div>
+                <small id="retentionRecommendation" style="display:none; color:var(--pico-muted-color);"></small>
             </div>
             <small>パイプライン実行後に古いダウンロード MP4 を自動削除します。合成画像・動画は保持されます。</small>
         </fieldset>
@@ -670,7 +671,7 @@ function populateCleanupFields(c) {
     document.getElementById('cleanupMode').value = c.mode || 'disabled';
     document.getElementById('cleanupMinFreeGb').value = c.min_free_gb || '10';
     document.getElementById('cleanupMinFreePct').value = c.min_free_pct || '20';
-    document.getElementById('cleanupRetentionDays').value = c.retention_days || '30';
+    document.getElementById('cleanupRetentionDays').value = c.retention_days || '7';
     toggleCleanupFields();
 }
 
@@ -699,6 +700,14 @@ function refreshStorageInfo() {
             document.getElementById('storageFree').textContent =
                 formatBytes(info.disk_free) + ' / ' + formatBytes(info.disk_total) + ' (' + info.disk_free_pct + '%)';
             document.getElementById('storageDownloads').textContent = formatBytes(info.downloads_size);
+            // 推奨保持日数の表示
+            var recEl = document.getElementById('retentionRecommendation');
+            if (recEl && info.recommended_retention_days != null) {
+                var avgStr = formatBytes(info.avg_night_size);
+                recEl.textContent = '\uD83D\uDCA1 このディスク (' + formatBytes(info.disk_total) + ') の推奨: '
+                    + info.recommended_retention_days + '日（1夜平均 ' + avgStr + '）';
+                recEl.style.display = '';
+            }
         })
         .catch(function() {
             document.getElementById('storageFree').textContent = '取得失敗';

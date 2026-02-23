@@ -105,6 +105,19 @@ class CleanupService:
             if size > 0:
                 night_sizes.append({"date_str": date_str, "size": size})
 
+        # 推奨保持日数の計算
+        os_reserved = 6 * 1024**3  # OS・アプリ・output 分として 6GB を確保
+        available = max(0, usage.total - os_reserved)
+        if night_sizes:
+            avg_night = sum(int(ns["size"]) for ns in night_sizes) / len(night_sizes)
+        else:
+            avg_night = 2.5 * 1024**3  # フォールバック: 1夜あたり 2.5GB
+        if avg_night > 0:
+            recommended = int(available / avg_night)
+        else:
+            recommended = 90
+        recommended = max(3, min(90, recommended))
+
         return {
             "disk_total": usage.total,
             "disk_used": usage.used,
@@ -114,6 +127,8 @@ class CleanupService:
             else 0,
             "downloads_size": downloads_size,
             "night_sizes": night_sizes,
+            "recommended_retention_days": recommended,
+            "avg_night_size": int(avg_night),
         }
 
     def _cleanup_by_retention(
