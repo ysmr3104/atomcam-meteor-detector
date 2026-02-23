@@ -613,3 +613,85 @@ class TestResetSettingsAPI:
         data = resp.json()
         assert data["reboot_enabled"] == "false"
         assert data["reboot_time"] == "12:00"
+
+
+class TestCleanupSettingsAPI:
+    def test_get_cleanup_defaults(self, client):
+        """デフォルトのクリーンアップ設定が返ること"""
+        resp = client.get("/api/settings/cleanup")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["mode"] == "disabled"
+        assert data["min_free_gb"] == "10"
+        assert data["min_free_pct"] == "20"
+        assert data["retention_days"] == "7"
+
+    def test_put_and_get_cleanup(self, client):
+        """クリーンアップ設定の保存と取得"""
+        resp = client.put("/api/settings/cleanup", json={
+            "mode": "retention_days",
+            "retention_days": "14",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "saved"
+
+        resp = client.get("/api/settings/cleanup")
+        data = resp.json()
+        assert data["mode"] == "retention_days"
+        assert data["retention_days"] == "14"
+
+    def test_put_empty_body(self, client):
+        """空のボディで 400 が返ること"""
+        resp = client.put("/api/settings/cleanup", json={})
+        assert resp.status_code == 400
+
+    def test_reset_cleanup(self, client):
+        """クリーンアップ設定のリセット"""
+        client.put("/api/settings/cleanup", json={
+            "mode": "min_free_gb",
+            "min_free_gb": "5",
+        })
+        resp = client.delete("/api/settings/cleanup")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "reset"
+
+        resp = client.get("/api/settings/cleanup")
+        data = resp.json()
+        assert data["mode"] == "disabled"
+        assert data["min_free_gb"] == "10"
+
+
+class TestStorageAPI:
+    def test_storage_info(self, client):
+        """ストレージ情報が取得できること"""
+        resp = client.get("/api/storage/info")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "disk_total" in data
+        assert "disk_free" in data
+        assert "downloads_size" in data
+
+    def test_cleanup_status_idle(self, client):
+        """クリーンアップ未実行時に idle が返ること"""
+        resp = client.get("/api/storage/cleanup/status")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "idle"
+
+    def test_run_cleanup(self, client):
+        """クリーンアップのトリガーが成功すること"""
+        resp = client.post("/api/storage/cleanup")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "started"
+
+    def test_delete_night_downloads(self, client, seeded_db):
+        """夜のダウンロード削除 API"""
+        resp = client.delete("/api/nights/20250101/downloads")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["date_str"] == "20250101"
+        assert "bytes_freed" in data
+
+    def test_delete_night_downloads_not_found(self, client):
+        """存在しない夜のダウンロード削除で 404 が返ること"""
+        resp = client.delete("/api/nights/99991231/downloads")
+        assert resp.status_code == 404

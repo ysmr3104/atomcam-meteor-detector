@@ -225,6 +225,24 @@ class ClipRepository:
         )
         self._conn.commit()
 
+    def get_clips_with_local_path(self, date_str: str) -> list[dict]:
+        """local_path が設定されているクリップを返す。"""
+        rows = self._conn.execute(
+            "SELECT * FROM clips WHERE date_str = ? AND local_path IS NOT NULL "
+            "ORDER BY hour, minute",
+            (date_str,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def clear_local_paths(self, date_str: str) -> None:
+        """指定夜の全クリップの local_path を NULL にクリアする。"""
+        self._conn.execute(
+            "UPDATE clips SET local_path = NULL, updated_at = datetime('now') "
+            "WHERE date_str = ?",
+            (date_str,),
+        )
+        self._conn.commit()
+
 
 class DetectionRepository:
     """CRUD operations for the detections table (per-line records)."""
@@ -387,6 +405,13 @@ class NightOutputRepository:
             (int(hidden), date_str),
         )
         self._conn.commit()
+
+    def get_all_dates_asc(self) -> list[str]:
+        """全観測夜の date_str を昇順で返す。"""
+        rows = self._conn.execute(
+            "SELECT date_str FROM night_outputs ORDER BY date_str ASC"
+        ).fetchall()
+        return [row["date_str"] for row in rows]
 
     def get_visible_nights(self) -> list[dict]:
         """Return only visible (non-hidden) night output records."""

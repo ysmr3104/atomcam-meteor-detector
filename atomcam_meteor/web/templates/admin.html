@@ -7,7 +7,7 @@
 <h1>管理ページ</h1>
 
 <!-- タブナビゲーション -->
-<div class="settings-tabs" style="display: flex; gap: 0; border-bottom: 2px solid var(--pico-muted-border-color); margin-bottom: 0;">
+<div class="settings-tabs" style="display: flex; gap: 0; border-bottom: 2px solid var(--pico-muted-border-color); margin-bottom: 0; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch;">
     <a class="tab active" data-tab="schedule" onclick="switchTab('schedule')"
        style="border-bottom: 2px solid var(--pico-primary); margin-bottom: -2px; padding: 0.5rem 1rem; cursor: pointer; font-weight: bold; color: var(--pico-primary); font-size: 0.875rem; text-decoration: none; white-space: nowrap;">
         観測スケジュール</a>
@@ -20,6 +20,9 @@
     <a class="tab" data-tab="system" onclick="switchTab('system')"
        style="border-bottom: 2px solid transparent; margin-bottom: -2px; padding: 0.5rem 1rem; cursor: pointer; font-size: 0.875rem; text-decoration: none; white-space: nowrap;">
         システム</a>
+    <a class="tab" data-tab="storage" onclick="switchTab('storage')"
+       style="border-bottom: 2px solid transparent; margin-bottom: -2px; padding: 0.5rem 1rem; cursor: pointer; font-size: 0.875rem; text-decoration: none; white-space: nowrap;">
+        ストレージ</a>
     <a class="tab" data-tab="data" onclick="switchTab('data')"
        style="border-bottom: 2px solid transparent; margin-bottom: -2px; padding: 0.5rem 1rem; cursor: pointer; font-size: 0.875rem; text-decoration: none; white-space: nowrap;">
         データ管理</a>
@@ -226,7 +229,63 @@
 </form>
 </div>
 
-<!-- Tab 5: データ管理 -->
+<!-- Tab 5: ストレージ -->
+<div class="tab-panel" id="tab-storage" style="display: none; margin-top: 1rem;">
+    <fieldset>
+        <legend>ストレージ使用状況</legend>
+        <div id="storageInfo" style="display: grid; grid-template-columns: auto 1fr; gap: 0.25rem 1rem; font-size: 0.875rem;">
+            <span>ディスク空き容量:</span>
+            <span id="storageFree">-</span>
+            <span>ダウンロードサイズ:</span>
+            <span id="storageDownloads">-</span>
+        </div>
+        <button type="button" id="refreshStorageBtn" class="secondary outline" onclick="refreshStorageInfo()" style="margin-top: 0.5rem; width: auto;">
+            状況を更新
+        </button>
+    </fieldset>
+
+    <form id="cleanupSettingsForm" onsubmit="return false;">
+        <fieldset>
+            <legend>自動クリーンアップ</legend>
+            <label for="cleanupMode">モード</label>
+            <select id="cleanupMode" name="cleanup_mode" onchange="toggleCleanupFields()">
+                <option value="disabled">無効</option>
+                <option value="min_free_gb">最低空き容量(GB)</option>
+                <option value="min_free_pct">最低空き容量(%)</option>
+                <option value="retention_days">保持日数</option>
+            </select>
+            <div id="cleanupMinFreeGbFields" style="display:none;">
+                <label for="cleanupMinFreeGb">最低空き容量</label>
+                <div style="display:flex; align-items:center; gap:0.5rem;">
+                    <input type="number" id="cleanupMinFreeGb" min="1" max="1000" step="1" value="10" style="width:auto;">
+                    <span>GB</span>
+                </div>
+            </div>
+            <div id="cleanupMinFreePctFields" style="display:none;">
+                <label for="cleanupMinFreePct">最低空き容量</label>
+                <div style="display:flex; align-items:center; gap:0.5rem;">
+                    <input type="number" id="cleanupMinFreePct" min="1" max="90" step="1" value="20" style="width:auto;">
+                    <span>%</span>
+                </div>
+            </div>
+            <div id="cleanupRetentionDaysFields" style="display:none;">
+                <label for="cleanupRetentionDays">保持日数</label>
+                <div style="display:flex; align-items:center; gap:0.5rem;">
+                    <input type="number" id="cleanupRetentionDays" min="1" max="365" step="1" value="7" style="width:auto;">
+                    <span>日</span>
+                </div>
+                <small id="retentionRecommendation" style="display:none; color:var(--pico-muted-color);"></small>
+            </div>
+            <small>パイプライン実行後に古いダウンロード MP4 を自動削除します。合成画像・動画は保持されます。</small>
+        </fieldset>
+        <button type="button" class="secondary" id="manualCleanupBtn" onclick="runManualCleanup()" style="width:auto;">今すぐクリーンアップ実行</button>
+        <span id="cleanupStatusText" style="margin-left:0.5rem; font-size:0.875rem;"></span>
+        <br>
+        <button type="button" class="outline contrast" onclick="resetSettings('cleanup')" style="width:auto; font-size:0.8rem; padding:0.4rem 0.8rem; margin-top:0.5rem;">デフォルトに戻す</button>
+    </form>
+</div>
+
+<!-- Tab 6: データ管理 -->
 <div class="tab-panel" id="tab-data" style="display: none; margin-top: 1rem;">
     <h3>非表示の夜</h3>
     {% if hidden_nights %}
@@ -248,6 +307,8 @@
                 <td>
                     <button class="outline" style="margin:0; padding:0.25rem 0.75rem;"
                             onclick="restoreNight('{{ night.date_str }}', this)">表示に戻す</button>
+                    <button class="outline secondary" style="margin:0; padding:0.25rem 0.75rem;"
+                            onclick="deleteNightDownloads('{{ night.date_str }}', this)">データ削除</button>
                 </td>
             </tr>
             {% endfor %}
@@ -354,6 +415,7 @@ function loadAllSettings() {
         fetch('/api/settings/schedule').then(function(r) { return r.json(); }),
         fetch('/api/settings/detection').then(function(r) { return r.json(); }),
         fetch('/api/settings/system').then(function(r) { return r.json(); }),
+        fetch('/api/settings/cleanup').then(function(r) { return r.json(); }),
     ]).then(function(results) {
         var prefs = results[0];
         var sel = document.getElementById('prefecture');
@@ -367,6 +429,7 @@ function loadAllSettings() {
         populateScheduleFields(results[1]);
         populateDetectionFields(results[2]);
         populateSystemFields(results[3]);
+        populateCleanupFields(results[4]);
     });
 }
 
@@ -437,6 +500,12 @@ function saveSettings() {
         reboot_enabled: document.getElementById('rebootEnabled').checked ? 'true' : 'false',
         reboot_time: document.getElementById('rebootTime').value,
     };
+    var cleanupData = {
+        mode: document.getElementById('cleanupMode').value,
+        min_free_gb: document.getElementById('cleanupMinFreeGb').value,
+        min_free_pct: document.getElementById('cleanupMinFreePct').value,
+        retention_days: document.getElementById('cleanupRetentionDays').value,
+    };
 
     function putWithDetail(url, data, label) {
         return fetch(url, {
@@ -457,6 +526,7 @@ function saveSettings() {
         putWithDetail('/api/settings/schedule', scheduleData, 'スケジュール設定'),
         putWithDetail('/api/settings/detection', detectionData, '検出パラメータ'),
         putWithDetail('/api/settings/system', systemData, 'システム設定'),
+        putWithDetail('/api/settings/cleanup', cleanupData, 'クリーンアップ設定'),
     ])
     .then(function() {
         btn.disabled = false;
@@ -475,7 +545,7 @@ function saveSettings() {
 
 /* -- デフォルトにリセット -- */
 function resetSettings(category) {
-    var labels = { schedule: '観測スケジュール・自動実行', detection: '検出パラメータ', system: 'システム' };
+    var labels = { schedule: '観測スケジュール・自動実行', detection: '検出パラメータ', system: 'システム', cleanup: 'クリーンアップ' };
     var label = labels[category] || category;
     if (!confirm(label + ' の設定をデフォルトに戻しますか？')) return;
 
@@ -596,10 +666,127 @@ function detectLocation() {
         });
 }
 
+/* -- クリーンアップ設定 -- */
+function populateCleanupFields(c) {
+    document.getElementById('cleanupMode').value = c.mode || 'disabled';
+    document.getElementById('cleanupMinFreeGb').value = c.min_free_gb || '10';
+    document.getElementById('cleanupMinFreePct').value = c.min_free_pct || '20';
+    document.getElementById('cleanupRetentionDays').value = c.retention_days || '7';
+    toggleCleanupFields();
+}
+
+function toggleCleanupFields() {
+    var mode = document.getElementById('cleanupMode').value;
+    document.getElementById('cleanupMinFreeGbFields').style.display = mode === 'min_free_gb' ? '' : 'none';
+    document.getElementById('cleanupMinFreePctFields').style.display = mode === 'min_free_pct' ? '' : 'none';
+    document.getElementById('cleanupRetentionDaysFields').style.display = mode === 'retention_days' ? '' : 'none';
+}
+
+/* -- ストレージ情報 -- */
+function formatBytes(bytes) {
+    if (bytes === 0) return '0 B';
+    var units = ['B', 'KB', 'MB', 'GB', 'TB'];
+    var i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return (bytes / Math.pow(1024, i)).toFixed(1) + ' ' + units[i];
+}
+
+function refreshStorageInfo() {
+    var btn = document.getElementById('refreshStorageBtn');
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    fetch('/api/storage/info')
+        .then(function(r) { return r.json(); })
+        .then(function(info) {
+            document.getElementById('storageFree').textContent =
+                formatBytes(info.disk_free) + ' / ' + formatBytes(info.disk_total) + ' (' + info.disk_free_pct + '%)';
+            document.getElementById('storageDownloads').textContent = formatBytes(info.downloads_size);
+            // 推奨保持日数の表示
+            var recEl = document.getElementById('retentionRecommendation');
+            if (recEl && info.recommended_retention_days != null) {
+                var avgStr = formatBytes(info.avg_night_size);
+                recEl.textContent = '\uD83D\uDCA1 このディスク (' + formatBytes(info.disk_total) + ') の推奨: '
+                    + info.recommended_retention_days + '日（1夜平均 ' + avgStr + '）';
+                recEl.style.display = '';
+            }
+        })
+        .catch(function() {
+            document.getElementById('storageFree').textContent = '取得失敗';
+        })
+        .finally(function() {
+            btn.disabled = false;
+            btn.setAttribute('aria-busy', 'false');
+        });
+}
+
+/* -- 手動クリーンアップ -- */
+function runManualCleanup() {
+    var btn = document.getElementById('manualCleanupBtn');
+    var statusText = document.getElementById('cleanupStatusText');
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    statusText.textContent = '実行中...';
+
+    fetch('/api/storage/cleanup', { method: 'POST' })
+        .then(function(r) { return r.json(); })
+        .then(function() {
+            // ポーリングで完了を待つ
+            var pollInterval = setInterval(function() {
+                fetch('/api/storage/cleanup/status')
+                    .then(function(r) { return r.json(); })
+                    .then(function(s) {
+                        if (s.status === 'completed') {
+                            clearInterval(pollInterval);
+                            btn.disabled = false;
+                            btn.setAttribute('aria-busy', 'false');
+                            var msg = s.nights_cleaned + '夜分を削除 (' + formatBytes(s.bytes_freed) + ')';
+                            statusText.textContent = msg;
+                            showToast('クリーンアップ完了: ' + msg, 'success');
+                            refreshStorageInfo();
+                        } else if (s.status && s.status.startsWith('error')) {
+                            clearInterval(pollInterval);
+                            btn.disabled = false;
+                            btn.setAttribute('aria-busy', 'false');
+                            statusText.textContent = 'エラー';
+                            showToast('クリーンアップ失敗', 'error');
+                        }
+                    });
+            }, 1000);
+        })
+        .catch(function() {
+            btn.disabled = false;
+            btn.setAttribute('aria-busy', 'false');
+            statusText.textContent = '';
+            showToast('クリーンアップの開始に失敗しました', 'error');
+        });
+}
+
+/* -- 非表示夜のダウンロードデータ削除 -- */
+function deleteNightDownloads(dateStr, btn) {
+    if (!confirm(dateStr + ' のダウンロードデータを削除しますか？')) return;
+    btn.disabled = true;
+    btn.textContent = '削除中...';
+
+    fetch('/api/nights/' + dateStr + '/downloads', { method: 'DELETE' })
+        .then(function(r) {
+            if (!r.ok) throw new Error('API error');
+            return r.json();
+        })
+        .then(function(data) {
+            btn.textContent = '削除済み';
+            showToast(dateStr + ' のデータを削除しました (' + formatBytes(data.bytes_freed) + ')', 'success');
+        })
+        .catch(function() {
+            btn.disabled = false;
+            btn.textContent = 'データ削除';
+            showToast('データの削除に失敗しました', 'error');
+        });
+}
+
 /* -- ページ読み込み時に設定をロード -- */
 document.addEventListener('DOMContentLoaded', function() {
     loadAllSettings();
     refreshSchedulerStatus();
+    refreshStorageInfo();
 });
 </script>
 {% endblock %}

@@ -221,6 +221,49 @@ def resolve_detection_config(
     return DetectionConfig.model_validate(base)
 
 
+# ── クリーンアップ設定 ──────────────────────────────────────────────
+
+_DEFAULT_CLEANUP_MODE = "disabled"
+_DEFAULT_CLEANUP_MIN_FREE_GB = "10"
+_DEFAULT_CLEANUP_MIN_FREE_PCT = "20"
+_DEFAULT_CLEANUP_RETENTION_DAYS = "7"
+
+_CLEANUP_KEYS = [
+    "mode",
+    "min_free_gb",
+    "min_free_pct",
+    "retention_days",
+]
+
+
+def resolve_cleanup_settings(
+    settings: SettingsRepository | None,
+) -> dict[str, str]:
+    """クリーンアップ設定を解決する。"""
+    db_settings: dict[str, str] = {}
+    if settings is not None:
+        db_settings = settings.get_all()
+    return {
+        "mode": db_settings.get("cleanup.mode", _DEFAULT_CLEANUP_MODE),
+        "min_free_gb": db_settings.get(
+            "cleanup.min_free_gb", _DEFAULT_CLEANUP_MIN_FREE_GB
+        ),
+        "min_free_pct": db_settings.get(
+            "cleanup.min_free_pct", _DEFAULT_CLEANUP_MIN_FREE_PCT
+        ),
+        "retention_days": db_settings.get(
+            "cleanup.retention_days", _DEFAULT_CLEANUP_RETENTION_DAYS
+        ),
+    }
+
+
+def get_current_cleanup_settings(
+    settings: SettingsRepository | None,
+) -> dict[str, str]:
+    """API レスポンス用にクリーンアップ設定を返す。"""
+    return resolve_cleanup_settings(settings)
+
+
 def get_current_detection_settings(
     settings: SettingsRepository | None,
     yaml_detection: DetectionConfig,

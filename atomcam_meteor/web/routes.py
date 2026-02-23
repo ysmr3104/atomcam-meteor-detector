@@ -15,7 +15,9 @@ from atomcam_meteor.config import AppConfig
 from atomcam_meteor.services.db import ClipRepository, StateDB
 from atomcam_meteor.services.prefectures import PREFECTURES
 from atomcam_meteor.services.schedule_resolver import (
+    _CLEANUP_KEYS,
     _DETECTION_KEYS,
+    get_current_cleanup_settings,
     get_current_detection_settings,
     get_current_settings,
     get_current_system_settings,
@@ -61,6 +63,7 @@ _rebuild_status: dict[str, str] = {}
 _concatenate_status: dict[str, str] = {}
 _redetect_status: dict[str, dict[str, str | int]] = {}
 _redetect_cancel_events: dict[str, threading.Event] = {}
+_cleanup_status: dict[str, str | int] = {}
 
 
 # ── HTML pages ──────────────────────────────────────────────────────────
@@ -603,6 +606,112 @@ def api_reset_system_settings(
     """システム設定をデフォルトにリセットする。"""
     deleted = db.settings.delete_by_prefix("system.")
     return {"status": "reset", "deleted": deleted}
+
+
+# ── クリーンアップ設定 API ────────────────────────────────────────────
+
+@router.get("/api/settings/cleanup")
+def api_get_cleanup_settings(
+    db: StateDB = Depends(get_db),
+) -> dict:
+    """現在のクリーンアップ設定を取得する。"""
+    return get_current_cleanup_settings(db.settings)
+
+
+@router.put("/api/settings/cleanup")
+def api_put_cleanup_settings(
+    body: dict,
+    db: StateDB = Depends(get_db),
+) -> dict:
+    """クリーンアップ設定を DB に保存する。"""
+    valid_keys = set(_CLEANUP_KEYS)
+    items: dict[str, str] = {
+        f"cleanup.{k}": str(v) for k, v in body.items() if k in valid_keys
+    }
+    if not items:
+        raise HTTPException(status_code=400, detail="有効なフィールドがありません")
+    db.settings.set_many(items)
+    return {"status": "saved", "keys": list(items.keys())}
+
+
+@router.delete("/api/settings/cleanup")
+def api_reset_cleanup_settings(
+    db: StateDB = Depends(get_db),
+) -> dict:
+    """クリーンアップ設定をデフォルトにリセットする。"""
+    deleted = db.settings.delete_by_prefix("cleanup.")
+    return {"status": "reset", "deleted": deleted}
+
+
+# ── ストレージ API ────────────────────────────────────────────────────
+
+@router.get("/api/storage/info")
+def api_storage_info(
+    config: AppConfig = Depends(get_config),
+    db: StateDB = Depends(get_db),
+) -> dict:
+    """ストレージの使用状況を返す。"""
+    from atomcam_meteor.services.cleanup import CleanupService
+
+    service = CleanupService(config, db)
+    return service.get_storage_info()
+
+
+@router.post("/api/storage/cleanup")
+def api_run_cleanup(
+    background_tasks: BackgroundTasks,
+    config: AppConfig = Depends(get_config),
+) -> dict:
+    """バックグラウンドでクリーンアップを実行する。"""
+    _cleanup_status.clear()
+    _cleanup_status["status"] = "running"
+    background_tasks.add_task(_do_cleanup, config)
+    return {"status": "started"}
+
+
+@router.get("/api/storage/cleanup/status")
+def api_cleanup_status() -> dict:
+    """クリーンアップの実行状態を返す。"""
+    if not _cleanup_status:
+        return {"status": "idle"}
+    return dict(_cleanup_status)
+
+
+@router.delete("/api/nights/{date_str}/downloads")
+def api_delete_night_downloads(
+    date_str: str,
+    config: AppConfig = Depends(get_config),
+    db: StateDB = Depends(get_db),
+) -> dict:
+    """特定の夜のダウンロード MP4 を削除する。"""
+    from atomcam_meteor.services.cleanup import CleanupService
+
+    night = db.nights.get_output(date_str)
+    if night is None:
+        raise HTTPException(status_code=404, detail="夜が見つかりません")
+    service = CleanupService(config, db)
+    bytes_freed = service.delete_night_downloads(date_str)
+    return {"date_str": date_str, "bytes_freed": bytes_freed}
+
+
+def _do_cleanup(config: AppConfig) -> None:
+    """バックグラウンドタスク: クリーンアップ実行。"""
+    try:
+        from atomcam_meteor.services.cleanup import CleanupService
+        from atomcam_meteor.services.db import StateDB as _StateDB
+
+        db = _StateDB.from_path(config.paths.resolve_db_path())
+        try:
+            service = CleanupService(config, db)
+            result = service.run()
+            _cleanup_status["status"] = "completed"
+            _cleanup_status["nights_cleaned"] = result.nights_cleaned
+            _cleanup_status["bytes_freed"] = result.bytes_freed
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.error("クリーンアップ失敗: %s", exc)
+        _cleanup_status["status"] = f"error: {exc}"
 
 
 def _do_redetect(date_str: str, config: AppConfig) -> None:
