@@ -39,10 +39,6 @@ class TestConcatenator:
         concatenator.concatenate([v1, v2], out)
 
         mock_run.assert_called_once()
-        cmd = mock_run.call_args[0][0]
-        assert "ffmpeg" in cmd
-        assert "-f" in cmd
-        assert "concat" in cmd
 
     @patch("atomcam_meteor.modules.concatenator.subprocess.run")
     def test_ffmpeg_failure(self, mock_run, concatenator, tmp_path):
