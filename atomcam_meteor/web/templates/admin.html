@@ -239,7 +239,7 @@
             <span>ダウンロードサイズ:</span>
             <span id="storageDownloads">-</span>
         </div>
-        <button type="button" class="secondary outline" onclick="refreshStorageInfo()" style="margin-top: 0.5rem; width: auto;">
+        <button type="button" id="refreshStorageBtn" class="secondary outline" onclick="refreshStorageInfo()" style="margin-top: 0.5rem; width: auto;">
             状況を更新
         </button>
     </fieldset>
@@ -690,6 +690,9 @@ function formatBytes(bytes) {
 }
 
 function refreshStorageInfo() {
+    var btn = document.getElementById('refreshStorageBtn');
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
     fetch('/api/storage/info')
         .then(function(r) { return r.json(); })
         .then(function(info) {
@@ -699,6 +702,10 @@ function refreshStorageInfo() {
         })
         .catch(function() {
             document.getElementById('storageFree').textContent = '取得失敗';
+        })
+        .finally(function() {
+            btn.disabled = false;
+            btn.setAttribute('aria-busy', 'false');
         });
 }
 
