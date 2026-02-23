@@ -42,6 +42,9 @@ def run(config_path: str | None, date_str: str | None, dry_run: bool, verbose: i
         try:
             pipeline = Pipeline(config, dry_run=dry_run, hooks=hooks, db=db)
             result = pipeline.execute(date_str)
+            # パイプライン完了後のクリーンアップ
+            if not dry_run:
+                _run_cleanup(config, db)
         finally:
             db.close()
 
@@ -180,3 +183,24 @@ def _load(config_path: str | None) -> AppConfig:
         if p.exists():
             return load_config(p)
     return AppConfig()
+
+
+def _run_cleanup(config: AppConfig, db: object) -> None:
+    """パイプライン完了後のクリーンアップ（エラーは握りつぶしてログのみ）。"""
+    import logging
+
+    from atomcam_meteor.services.cleanup import CleanupService
+    from atomcam_meteor.services.db import StateDB
+
+    _logger = logging.getLogger(__name__)
+    try:
+        assert isinstance(db, StateDB)
+        service = CleanupService(config, db)
+        result = service.run()
+        if result.nights_cleaned > 0:
+            click.echo(
+                f"Cleanup:    {result.nights_cleaned} night(s), "
+                f"{result.bytes_freed} bytes freed"
+            )
+    except Exception:
+        _logger.exception("クリーンアップ中にエラーが発生しました")

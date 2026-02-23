@@ -9,6 +9,8 @@ import logging
 import subprocess
 from datetime import date, datetime, timedelta
 
+from typing import TYPE_CHECKING
+
 from atomcam_meteor.config import AppConfig
 from atomcam_meteor.exceptions import LockError
 from atomcam_meteor.services.schedule_resolver import (
@@ -16,6 +18,9 @@ from atomcam_meteor.services.schedule_resolver import (
     resolve_reboot_settings,
     resolve_schedule,
 )
+
+if TYPE_CHECKING:
+    from atomcam_meteor.services.db import StateDB
 
 logger = logging.getLogger(__name__)
 
@@ -189,6 +194,8 @@ class PipelineScheduler:
                     pipeline = Pipeline(self._config, db=db)
                     result = pipeline.execute(date_str)
                     self.status.last_run_detections = result.detections_found
+                    # パイプライン完了後にクリーンアップ
+                    self._run_cleanup(db)
                 finally:
                     db.close()
                 logger.info(
@@ -199,6 +206,22 @@ class PipelineScheduler:
         except LockError:
             logger.info("スケジューラ: ロック取得失敗（CLI 実行中）、スキップします")
             return "skipped_lock"
+
+    def _run_cleanup(self, db: StateDB) -> None:
+        """クリーンアップを実行する（エラーは握りつぶしてログのみ）。"""
+        try:
+            from atomcam_meteor.services.cleanup import CleanupService
+
+            service = CleanupService(self._config, db)
+            result = service.run()
+            if result.nights_cleaned > 0:
+                logger.info(
+                    "クリーンアップ: %d夜分を削除 (%d bytes)",
+                    result.nights_cleaned,
+                    result.bytes_freed,
+                )
+        except Exception:
+            logger.exception("クリーンアップ中にエラーが発生しました")
 
     def _check_reboot(
         self,
