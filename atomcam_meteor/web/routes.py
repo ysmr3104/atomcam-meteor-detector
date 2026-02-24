@@ -17,6 +17,7 @@ from atomcam_meteor.services.prefectures import PREFECTURES
 from atomcam_meteor.services.schedule_resolver import (
     _CLEANUP_KEYS,
     _DETECTION_KEYS,
+    get_current_camera_settings,
     get_current_cleanup_settings,
     get_current_detection_settings,
     get_current_settings,
@@ -640,6 +641,41 @@ def api_reset_cleanup_settings(
 ) -> dict:
     """クリーンアップ設定をデフォルトにリセットする。"""
     deleted = db.settings.delete_by_prefix("cleanup.")
+    return {"status": "reset", "deleted": deleted}
+
+
+# ── カメラ設定 API ─────────────────────────────────────────────────────
+
+@router.get("/api/settings/camera")
+def api_get_camera_settings(
+    db: StateDB = Depends(get_db),
+    config: AppConfig = Depends(get_config),
+) -> dict:
+    """現在のカメラ設定を取得する。"""
+    return get_current_camera_settings(db.settings, config.camera)
+
+
+@router.put("/api/settings/camera")
+def api_put_camera_settings(
+    body: dict,
+    db: StateDB = Depends(get_db),
+) -> dict:
+    """カメラ設定を DB に保存する。"""
+    items: dict[str, str] = {}
+    if "host" in body:
+        items["camera.host"] = str(body["host"])
+    if not items:
+        raise HTTPException(status_code=400, detail="保存する設定がありません")
+    db.settings.set_many(items)
+    return {"status": "saved", "keys": list(items.keys())}
+
+
+@router.delete("/api/settings/camera")
+def api_reset_camera_settings(
+    db: StateDB = Depends(get_db),
+) -> dict:
+    """カメラ設定をデフォルトにリセットする。"""
+    deleted = db.settings.delete_by_prefix("camera.")
     return {"status": "reset", "deleted": deleted}
 
 

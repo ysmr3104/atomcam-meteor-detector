@@ -8,8 +8,11 @@
 
 <!-- タブナビゲーション -->
 <div class="settings-tabs" style="display: flex; gap: 0; border-bottom: 2px solid var(--pico-muted-border-color); margin-bottom: 0; overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch;">
-    <a class="tab active" data-tab="schedule" onclick="switchTab('schedule')"
+    <a class="tab active" data-tab="camera" onclick="switchTab('camera')"
        style="border-bottom: 2px solid var(--pico-primary); margin-bottom: -2px; padding: 0.5rem 1rem; cursor: pointer; font-weight: bold; color: var(--pico-primary); font-size: 0.875rem; text-decoration: none; white-space: nowrap;">
+        カメラ</a>
+    <a class="tab" data-tab="schedule" onclick="switchTab('schedule')"
+       style="border-bottom: 2px solid transparent; margin-bottom: -2px; padding: 0.5rem 1rem; cursor: pointer; font-size: 0.875rem; text-decoration: none; white-space: nowrap;">
         観測スケジュール</a>
     <a class="tab" data-tab="automation" onclick="switchTab('automation')"
        style="border-bottom: 2px solid transparent; margin-bottom: -2px; padding: 0.5rem 1rem; cursor: pointer; font-size: 0.875rem; text-decoration: none; white-space: nowrap;">
@@ -28,8 +31,21 @@
         データ管理</a>
 </div>
 
+<!-- Tab 0: カメラ -->
+<div class="tab-panel active" id="tab-camera" style="margin-top: 1rem;">
+<form id="cameraSettingsForm" onsubmit="return false;">
+    <fieldset>
+        <legend>カメラ接続</legend>
+        <label for="cameraHost">ホスト名 / IPアドレス</label>
+        <input type="text" id="cameraHost" name="host" placeholder="atomcam2.local または 192.168.1.105">
+        <small>ATOM Cam の mDNS ホスト名または IP アドレスを指定します。名前解決が不安定な場合は IP アドレスを直接入力してください。</small>
+    </fieldset>
+    <button type="button" class="outline contrast" onclick="resetSettings('camera')" style="width:auto; font-size:0.8rem; padding:0.4rem 0.8rem;">デフォルトに戻す</button>
+</form>
+</div>
+
 <!-- Tab 1: 観測スケジュール -->
-<div class="tab-panel active" id="tab-schedule" style="margin-top: 1rem;">
+<div class="tab-panel" id="tab-schedule" style="display: none; margin-top: 1rem;">
 <form id="scheduleSettingsForm" onsubmit="return false;">
     <fieldset>
         <legend>開始時刻</legend>
@@ -416,6 +432,7 @@ function loadAllSettings() {
         fetch('/api/settings/detection').then(function(r) { return r.json(); }),
         fetch('/api/settings/system').then(function(r) { return r.json(); }),
         fetch('/api/settings/cleanup').then(function(r) { return r.json(); }),
+        fetch('/api/settings/camera').then(function(r) { return r.json(); }),
     ]).then(function(results) {
         var prefs = results[0];
         var sel = document.getElementById('prefecture');
@@ -430,6 +447,7 @@ function loadAllSettings() {
         populateDetectionFields(results[2]);
         populateSystemFields(results[3]);
         populateCleanupFields(results[4]);
+        populateCameraFields(results[5]);
     });
 }
 
@@ -464,6 +482,10 @@ function populateDetectionFields(d) {
 function populateSystemFields(sys) {
     document.getElementById('rebootEnabled').checked = (sys.reboot_enabled === 'true' || sys.reboot_enabled === '1');
     document.getElementById('rebootTime').value = sys.reboot_time || '12:00';
+}
+
+function populateCameraFields(cam) {
+    document.getElementById('cameraHost').value = cam.host || '';
 }
 
 /* -- 保存 -- */
@@ -506,6 +528,9 @@ function saveSettings() {
         min_free_pct: document.getElementById('cleanupMinFreePct').value,
         retention_days: document.getElementById('cleanupRetentionDays').value,
     };
+    var cameraData = {
+        host: document.getElementById('cameraHost').value,
+    };
 
     function putWithDetail(url, data, label) {
         return fetch(url, {
@@ -527,6 +552,7 @@ function saveSettings() {
         putWithDetail('/api/settings/detection', detectionData, '検出パラメータ'),
         putWithDetail('/api/settings/system', systemData, 'システム設定'),
         putWithDetail('/api/settings/cleanup', cleanupData, 'クリーンアップ設定'),
+        putWithDetail('/api/settings/camera', cameraData, 'カメラ設定'),
     ])
     .then(function() {
         btn.disabled = false;
@@ -545,7 +571,7 @@ function saveSettings() {
 
 /* -- デフォルトにリセット -- */
 function resetSettings(category) {
-    var labels = { schedule: '観測スケジュール・自動実行', detection: '検出パラメータ', system: 'システム', cleanup: 'クリーンアップ' };
+    var labels = { camera: 'カメラ', schedule: '観測スケジュール・自動実行', detection: '検出パラメータ', system: 'システム', cleanup: 'クリーンアップ' };
     var label = labels[category] || category;
     if (!confirm(label + ' の設定をデフォルトに戻しますか？')) return;
 
