@@ -51,10 +51,18 @@
                 <input type="radio" name="cameraHostChoice" id="cameraChoiceHostname" value="hostname" checked onchange="updateCameraHostChoice()" style="margin:0;">
                 ホスト名を使用
             </label>
-            <label style="display:inline-flex; align-items:center; gap:0.5rem; cursor:pointer;">
+            <label style="display:inline-flex; align-items:center; gap:0.5rem; margin-right:1.5rem; cursor:pointer;">
                 <input type="radio" name="cameraHostChoice" id="cameraChoiceIp" value="ip" disabled onchange="updateCameraHostChoice()" style="margin:0;">
-                IP アドレスを使用 <span id="cameraIpLabel"></span>
+                名前解決した IP <span id="cameraIpLabel"></span>
             </label>
+            <label style="display:inline-flex; align-items:center; gap:0.5rem; cursor:pointer;">
+                <input type="radio" name="cameraHostChoice" id="cameraChoiceManual" value="manual" onchange="updateCameraHostChoice()" style="margin:0;">
+                手動入力
+            </label>
+        </div>
+        <div id="cameraManualFields" style="display:none; margin-top:0.5rem;">
+            <input type="text" id="cameraManualIp" placeholder="192.168.1.105" oninput="onManualIpInput()">
+            <small>IP アドレスまたはホスト名を直接入力してください。</small>
         </div>
         <input type="hidden" id="cameraHost" name="host">
         <input type="hidden" id="cameraResolvedIp">
@@ -509,18 +517,16 @@ function populateCameraFields(cam) {
     document.getElementById('cameraYamlHost').value = yamlHost;
     document.getElementById('cameraHost').value = currentHost;
 
-    // IP 形式かどうか判定（簡易: 数字とドットのみ）
-    var isIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(currentHost);
-    if (isIp && currentHost !== yamlHost) {
-        // 既に IP が保存されている場合、IP ラジオを有効化して選択
-        document.getElementById('cameraResolvedIp').value = currentHost;
-        document.getElementById('cameraChoiceIp').disabled = false;
-        document.getElementById('cameraChoiceIp').checked = true;
+    // 現在の保存値が YAML ホスト名と異なる場合の復元
+    if (currentHost !== yamlHost) {
+        // 手動入力欄に値をセットし「手動入力」を選択
+        document.getElementById('cameraManualIp').value = currentHost;
+        document.getElementById('cameraChoiceManual').checked = true;
         document.getElementById('cameraChoiceHostname').checked = false;
-        document.getElementById('cameraIpLabel').textContent = '(' + currentHost + ')';
+        document.getElementById('cameraManualFields').style.display = '';
     } else {
         document.getElementById('cameraChoiceHostname').checked = true;
-        document.getElementById('cameraChoiceIp').checked = false;
+        document.getElementById('cameraManualFields').style.display = 'none';
     }
 }
 
@@ -542,6 +548,9 @@ function resolveHostname() {
             document.getElementById('cameraResolvedIp').value = ip;
             document.getElementById('cameraChoiceIp').disabled = false;
             document.getElementById('cameraIpLabel').textContent = '(' + ip + ')';
+            document.getElementById('cameraChoiceIp').checked = true;
+            document.getElementById('cameraManualFields').style.display = 'none';
+            document.getElementById('cameraHost').value = ip;
             resultSpan.textContent = data.hostname + ' → ' + ip;
             showToast('名前解決成功: ' + ip, 'success');
         })
@@ -558,11 +567,21 @@ function resolveHostname() {
 
 function updateCameraHostChoice() {
     var choice = document.querySelector('input[name="cameraHostChoice"]:checked').value;
+    var manualFields = document.getElementById('cameraManualFields');
     if (choice === 'ip') {
+        manualFields.style.display = 'none';
         document.getElementById('cameraHost').value = document.getElementById('cameraResolvedIp').value;
+    } else if (choice === 'manual') {
+        manualFields.style.display = '';
+        document.getElementById('cameraHost').value = document.getElementById('cameraManualIp').value;
     } else {
+        manualFields.style.display = 'none';
         document.getElementById('cameraHost').value = document.getElementById('cameraYamlHost').value;
     }
+}
+
+function onManualIpInput() {
+    document.getElementById('cameraHost').value = document.getElementById('cameraManualIp').value;
 }
 
 /* -- 保存 -- */
