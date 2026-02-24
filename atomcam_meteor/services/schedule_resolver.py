@@ -305,4 +305,5 @@ def get_current_camera_settings(
     db_settings = settings.get_all() if settings else {}
     return {
         "host": db_settings.get("camera.host", yaml_camera.host),
+        "yaml_host": yaml_camera.host,
     }
