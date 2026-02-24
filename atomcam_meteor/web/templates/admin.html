@@ -36,9 +36,28 @@
 <form id="cameraSettingsForm" onsubmit="return false;">
     <fieldset>
         <legend>カメラ接続</legend>
-        <label for="cameraHost">ホスト名 / IPアドレス</label>
-        <input type="text" id="cameraHost" name="host" placeholder="atomcam2.local または 192.168.1.105">
-        <small>ATOM Cam の mDNS ホスト名または IP アドレスを指定します。名前解決が不安定な場合は IP アドレスを直接入力してください。</small>
+        <label>YAML ホスト名</label>
+        <input type="text" id="cameraYamlHost" readonly style="background:var(--pico-form-element-disabled-background-color, #e9ecef); cursor:default;">
+        <small>設定ファイル (YAML) に記載されたホスト名です。変更するには YAML ファイルを直接編集してください。</small>
+
+        <div style="margin-top:1rem;">
+            <button type="button" id="resolveHostBtn" class="secondary outline" onclick="resolveHostname()" style="width:auto; font-size:0.8rem; padding:0.4rem 0.8rem;">名前解決</button>
+            <span id="resolveResult" style="margin-left:0.5rem; font-size:0.875rem;"></span>
+        </div>
+
+        <div style="margin-top:1rem;">
+            <label>使用するアドレス</label>
+            <label style="display:inline-flex; align-items:center; gap:0.5rem; margin-right:1.5rem; cursor:pointer;">
+                <input type="radio" name="cameraHostChoice" id="cameraChoiceHostname" value="hostname" checked onchange="updateCameraHostChoice()" style="margin:0;">
+                ホスト名を使用
+            </label>
+            <label style="display:inline-flex; align-items:center; gap:0.5rem; cursor:pointer;">
+                <input type="radio" name="cameraHostChoice" id="cameraChoiceIp" value="ip" disabled onchange="updateCameraHostChoice()" style="margin:0;">
+                IP アドレスを使用 <span id="cameraIpLabel"></span>
+            </label>
+        </div>
+        <input type="hidden" id="cameraHost" name="host">
+        <input type="hidden" id="cameraResolvedIp">
     </fieldset>
     <button type="button" class="outline contrast" onclick="resetSettings('camera')" style="width:auto; font-size:0.8rem; padding:0.4rem 0.8rem;">デフォルトに戻す</button>
 </form>
@@ -485,7 +504,65 @@ function populateSystemFields(sys) {
 }
 
 function populateCameraFields(cam) {
-    document.getElementById('cameraHost').value = cam.host || '';
+    var yamlHost = cam.yaml_host || '';
+    var currentHost = cam.host || yamlHost;
+    document.getElementById('cameraYamlHost').value = yamlHost;
+    document.getElementById('cameraHost').value = currentHost;
+
+    // IP 形式かどうか判定（簡易: 数字とドットのみ）
+    var isIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(currentHost);
+    if (isIp && currentHost !== yamlHost) {
+        // 既に IP が保存されている場合、IP ラジオを有効化して選択
+        document.getElementById('cameraResolvedIp').value = currentHost;
+        document.getElementById('cameraChoiceIp').disabled = false;
+        document.getElementById('cameraChoiceIp').checked = true;
+        document.getElementById('cameraChoiceHostname').checked = false;
+        document.getElementById('cameraIpLabel').textContent = '(' + currentHost + ')';
+    } else {
+        document.getElementById('cameraChoiceHostname').checked = true;
+        document.getElementById('cameraChoiceIp').checked = false;
+    }
+}
+
+function resolveHostname() {
+    var btn = document.getElementById('resolveHostBtn');
+    var resultSpan = document.getElementById('resolveResult');
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    btn.textContent = '解決中...';
+    resultSpan.textContent = '';
+
+    fetch('/api/settings/camera/resolve', { method: 'POST' })
+        .then(function(r) {
+            if (!r.ok) return r.json().then(function(e) { throw new Error(e.detail || '名前解決失敗'); });
+            return r.json();
+        })
+        .then(function(data) {
+            var ip = data.ip_address;
+            document.getElementById('cameraResolvedIp').value = ip;
+            document.getElementById('cameraChoiceIp').disabled = false;
+            document.getElementById('cameraIpLabel').textContent = '(' + ip + ')';
+            resultSpan.textContent = data.hostname + ' → ' + ip;
+            showToast('名前解決成功: ' + ip, 'success');
+        })
+        .catch(function(err) {
+            resultSpan.textContent = '';
+            showToast('名前解決に失敗しました: ' + err.message, 'error');
+        })
+        .finally(function() {
+            btn.disabled = false;
+            btn.setAttribute('aria-busy', 'false');
+            btn.textContent = '名前解決';
+        });
+}
+
+function updateCameraHostChoice() {
+    var choice = document.querySelector('input[name="cameraHostChoice"]:checked').value;
+    if (choice === 'ip') {
+        document.getElementById('cameraHost').value = document.getElementById('cameraResolvedIp').value;
+    } else {
+        document.getElementById('cameraHost').value = document.getElementById('cameraYamlHost').value;
+    }
 }
 
 /* -- 保存 -- */

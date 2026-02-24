@@ -679,6 +679,24 @@ def api_reset_camera_settings(
     return {"status": "reset", "deleted": deleted}
 
 
+@router.post("/api/settings/camera/resolve")
+def api_resolve_camera_host(
+    config: AppConfig = Depends(get_config),
+) -> dict:
+    """カメラのホスト名を IP アドレスに名前解決する。"""
+    import socket
+
+    hostname = config.camera.host
+    try:
+        ip_address = socket.gethostbyname(hostname)
+    except socket.gaierror as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"ホスト名 '{hostname}' の名前解決に失敗しました: {exc}",
+        ) from exc
+    return {"hostname": hostname, "ip_address": ip_address}
+
+
 # ── ストレージ API ────────────────────────────────────────────────────
 
 @router.get("/api/storage/info")

@@ -668,6 +668,7 @@ class TestCameraSettingsAPI:
         assert resp.status_code == 200
         data = resp.json()
         assert data["host"] == "atomcam.local"
+        assert data["yaml_host"] == "atomcam.local"
 
     def test_put_and_get_camera(self, client):
         """カメラ設定の保存と取得"""
@@ -680,6 +681,7 @@ class TestCameraSettingsAPI:
         resp = client.get("/api/settings/camera")
         data = resp.json()
         assert data["host"] == "192.168.1.105"
+        assert data["yaml_host"] == "atomcam.local"
 
     def test_put_empty_body(self, client):
         """空のボディで 400 が返ること"""
@@ -698,6 +700,33 @@ class TestCameraSettingsAPI:
         resp = client.get("/api/settings/camera")
         data = resp.json()
         assert data["host"] == "atomcam.local"
+
+
+class TestResolveCameraHostAPI:
+    def test_resolve_camera_host(self, client, monkeypatch):
+        """名前解決が成功すること"""
+        import socket
+
+        monkeypatch.setattr(socket, "gethostbyname", lambda h: "192.168.1.100")
+
+        resp = client.post("/api/settings/camera/resolve")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["hostname"] == "atomcam.local"
+        assert data["ip_address"] == "192.168.1.100"
+
+    def test_resolve_camera_host_failure(self, client, monkeypatch):
+        """名前解決失敗時に 502 が返ること"""
+        import socket
+
+        def raise_gaierror(hostname):
+            raise socket.gaierror("Name or service not known")
+
+        monkeypatch.setattr(socket, "gethostbyname", raise_gaierror)
+
+        resp = client.post("/api/settings/camera/resolve")
+        assert resp.status_code == 502
+        assert "名前解決に失敗" in resp.json()["detail"]
 
 
 class TestStorageAPI:
