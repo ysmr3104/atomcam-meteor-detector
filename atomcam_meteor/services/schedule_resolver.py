@@ -6,7 +6,7 @@ import logging
 from datetime import datetime
 from typing import Any
 
-from atomcam_meteor.config import DetectionConfig, ScheduleConfig
+from atomcam_meteor.config import CameraConfig, DetectionConfig, ScheduleConfig
 from atomcam_meteor.services.prefectures import get_coordinates
 from atomcam_meteor.services.twilight import resolve_end_time, resolve_start_time
 
@@ -276,3 +276,33 @@ def get_current_detection_settings(
         db_val = db_settings.get(db_key)
         result[key] = db_val if db_val else str(getattr(yaml_detection, key))
     return result
+
+
+# ── カメラ設定 ──────────────────────────────────────────────────
+
+
+def resolve_camera_config(
+    settings: SettingsRepository | None,
+    yaml_camera: CameraConfig,
+) -> CameraConfig:
+    """DB設定でCameraConfigをオーバーライドする。DB値がなければYAML値を使用。"""
+    if settings is None:
+        return yaml_camera
+    db_settings = settings.get_all()
+    host = db_settings.get("camera.host")
+    if not host:
+        return yaml_camera
+    base = yaml_camera.model_dump()
+    base["host"] = host
+    return CameraConfig.model_validate(base)
+
+
+def get_current_camera_settings(
+    settings: SettingsRepository | None,
+    yaml_camera: CameraConfig,
+) -> dict[str, str]:
+    """現在のカメラ設定をAPI応答用に返す。"""
+    db_settings = settings.get_all() if settings else {}
+    return {
+        "host": db_settings.get("camera.host", yaml_camera.host),
+    }

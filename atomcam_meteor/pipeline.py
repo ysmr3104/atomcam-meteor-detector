@@ -26,6 +26,7 @@ from atomcam_meteor.modules.downloader import Downloader
 from atomcam_meteor.modules.extractor import ClipExtractor
 from atomcam_meteor.services.db import ClipStatus, StateDB
 from atomcam_meteor.services.schedule_resolver import (
+    resolve_camera_config,
     resolve_detection_config,
     resolve_schedule,
 )
@@ -92,6 +93,14 @@ class Pipeline:
         if resolved_detection is not self._config.detection:
             self._detector = MeteorDetector(resolved_detection)
             self._extractor = ClipExtractor(resolved_detection)
+
+        # カメラ設定の解決（DB → YAML）
+        resolved_camera = resolve_camera_config(
+            self._db.settings if self._db else None,
+            self._config.camera,
+        )
+        if resolved_camera is not self._config.camera:
+            self._downloader = Downloader(resolved_camera)
 
         # スケジュール解決（DB → YAML → 薄明計算）
         start_time, end_time = resolve_schedule(
@@ -287,6 +296,12 @@ class Pipeline:
             self._detector = MeteorDetector(resolved_detection)
             self._extractor = ClipExtractor(resolved_detection)
 
+        # カメラ設定の解決（DB → YAML）— clip_url 生成に使用
+        resolved_camera = resolve_camera_config(
+            self._db.settings if self._db else None,
+            self._config.camera,
+        )
+
         # スケジュール解決（DB → YAML → 薄明計算）
         start_time, end_time = resolve_schedule(
             self._db.settings if self._db else None,
@@ -320,8 +335,8 @@ class Pipeline:
             minute = int(mp4_file.stem)
             clips_processed += 1
             clip_url = (
-                f"http://{self._config.camera.host}"
-                f"/{self._config.camera.base_path}"
+                f"http://{resolved_camera.host}"
+                f"/{resolved_camera.base_path}"
                 f"/{slot_date}/{hour:02d}/{mp4_file.name}"
             )
 

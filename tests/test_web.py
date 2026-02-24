@@ -661,6 +661,45 @@ class TestCleanupSettingsAPI:
         assert data["min_free_gb"] == "10"
 
 
+class TestCameraSettingsAPI:
+    def test_get_camera_defaults(self, client):
+        """デフォルトのカメラ設定が返ること"""
+        resp = client.get("/api/settings/camera")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["host"] == "atomcam.local"
+
+    def test_put_and_get_camera(self, client):
+        """カメラ設定の保存と取得"""
+        resp = client.put("/api/settings/camera", json={
+            "host": "192.168.1.105",
+        })
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "saved"
+
+        resp = client.get("/api/settings/camera")
+        data = resp.json()
+        assert data["host"] == "192.168.1.105"
+
+    def test_put_empty_body(self, client):
+        """空のボディで 400 が返ること"""
+        resp = client.put("/api/settings/camera", json={})
+        assert resp.status_code == 400
+
+    def test_reset_camera(self, client):
+        """カメラ設定のリセット"""
+        client.put("/api/settings/camera", json={
+            "host": "192.168.1.200",
+        })
+        resp = client.delete("/api/settings/camera")
+        assert resp.status_code == 200
+        assert resp.json()["status"] == "reset"
+
+        resp = client.get("/api/settings/camera")
+        data = resp.json()
+        assert data["host"] == "atomcam.local"
+
+
 class TestStorageAPI:
     def test_storage_info(self, client):
         """ストレージ情報が取得できること"""
