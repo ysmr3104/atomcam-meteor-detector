@@ -201,6 +201,24 @@
             </button>
         </div>
     </fieldset>
+    <fieldset>
+      <legend>手動実行</legend>
+      <p style="font-size:0.875rem; margin-bottom:1rem;">
+        指定した夜の全クリップをカメラからダウンロードし、検出・合成・結合を実行します。
+      </p>
+      <div class="grid" style="grid-template-columns: 1fr auto; gap: 0.5rem; align-items: end;">
+        <label style="margin-bottom:0;">
+          対象の夜
+          <input type="date" id="manualRunDate" style="margin-top:0.25rem;">
+          <small>この日付の夜（前夜22時〜翌早朝）が処理対象です。</small>
+        </label>
+        <button type="button" id="manualRunBtn" onclick="runManualPipeline()" style="width:auto; height:fit-content;">実行</button>
+      </div>
+      <div id="manualRunStatus" style="margin-top:1rem; display:none;">
+        <div id="manualRunStatusText"></div>
+        <div id="manualRunResult" style="margin-top:0.5rem; display:none; font-size:0.875rem; padding:0.75rem; background:var(--pico-card-background-color); border-radius:4px; border:1px solid var(--pico-muted-border-color);"></div>
+      </div>
+    </fieldset>
     <button type="button" class="outline contrast" onclick="resetSettings('schedule')" style="width:auto; font-size:0.8rem; padding:0.4rem 0.8rem;">デフォルトに戻す</button>
 </form>
 </div>
@@ -880,6 +898,85 @@ function runManualCleanup() {
             statusText.textContent = '';
             showToast('クリーンアップの開始に失敗しました', 'error');
         });
+}
+
+/* -- 手動パイプライン実行 -- */
+(function() {
+    var now = new Date();
+    var target = now.getHours() < 12 ? now : new Date(now.getTime() - 86400000);
+    var y = target.getFullYear();
+    var m = String(target.getMonth() + 1).padStart(2, '0');
+    var d = String(target.getDate()).padStart(2, '0');
+    var el = document.getElementById('manualRunDate');
+    if (el) el.value = y + '-' + m + '-' + d;
+})();
+
+var _manualRunPollInterval = null;
+
+function runManualPipeline() {
+    var dateInput = document.getElementById('manualRunDate');
+    if (!dateInput || !dateInput.value) {
+        showToast('対象の夜を選択してください', 'error');
+        return;
+    }
+    var dateStr = dateInput.value.replace(/-/g, '');
+    var btn = document.getElementById('manualRunBtn');
+    var statusDiv = document.getElementById('manualRunStatus');
+    var statusText = document.getElementById('manualRunStatusText');
+    var resultDiv = document.getElementById('manualRunResult');
+
+    btn.disabled = true;
+    btn.setAttribute('aria-busy', 'true');
+    statusDiv.style.display = '';
+    statusText.textContent = '実行中...';
+    resultDiv.style.display = 'none';
+
+    fetch('/api/pipeline/run', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({date_str: dateStr}),
+    })
+    .then(function(r) {
+        if (r.status === 409) return r.json().then(function(e) { throw new Error(e.detail || '既に実行中です'); });
+        if (!r.ok) return r.json().then(function(e) { throw new Error(e.detail || '開始失敗'); });
+        return r.json();
+    })
+    .then(function() {
+        if (_manualRunPollInterval) clearInterval(_manualRunPollInterval);
+        _manualRunPollInterval = setInterval(function() {
+            fetch('/api/pipeline/run/status')
+                .then(function(r) { return r.json(); })
+                .then(function(s) {
+                    if (s.status === 'completed') {
+                        clearInterval(_manualRunPollInterval);
+                        btn.disabled = false;
+                        btn.setAttribute('aria-busy', 'false');
+                        statusText.textContent = '完了';
+                        var parts = [];
+                        parts.push('処理クリップ数: ' + s.clips_processed);
+                        parts.push('検出数: ' + s.detections_found);
+                        if (s.composite_path) parts.push('合成画像: あり');
+                        if (s.video_path) parts.push('結合動画: あり');
+                        resultDiv.textContent = parts.join(' / ');
+                        resultDiv.style.display = '';
+                        showToast('パイプライン完了: 検出 ' + s.detections_found + ' 件', 'success');
+                    } else if (s.status === 'error') {
+                        clearInterval(_manualRunPollInterval);
+                        btn.disabled = false;
+                        btn.setAttribute('aria-busy', 'false');
+                        statusText.textContent = 'エラー';
+                        showToast('実行失敗: ' + (s.message || '不明なエラー'), 'error');
+                    }
+                })
+                .catch(function() { /* ポーリング中の一時的なエラーは無視 */ });
+        }, 2000);
+    })
+    .catch(function(err) {
+        btn.disabled = false;
+        btn.setAttribute('aria-busy', 'false');
+        statusText.textContent = '';
+        showToast(err.message, 'error');
+    });
 }
 
 /* -- 非表示夜のダウンロードデータ削除 -- */

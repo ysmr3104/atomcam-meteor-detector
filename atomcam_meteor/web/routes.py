@@ -7,6 +7,7 @@ import re
 import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -65,6 +66,7 @@ _concatenate_status: dict[str, str] = {}
 _redetect_status: dict[str, dict[str, str | int]] = {}
 _redetect_cancel_events: dict[str, threading.Event] = {}
 _cleanup_status: dict[str, str | int] = {}
+_pipeline_run_status: dict[str, Any] = {"status": "idle"}
 
 
 # ── HTML pages ──────────────────────────────────────────────────────────
@@ -852,3 +854,62 @@ def _do_concatenate(date_str: str, config: AppConfig) -> None:
     except Exception as exc:
         logger.error("Concatenation failed for %s: %s", date_str, exc)
         _concatenate_status[date_str] = f"error: {exc}"
+
+
+def _do_pipeline_run(date_str: str, config: AppConfig) -> None:
+    """バックグラウンドタスク: 指定日付の夜のパイプラインをフル実行する。"""
+    try:
+        from atomcam_meteor.exceptions import LockError
+        from atomcam_meteor.pipeline import Pipeline
+        from atomcam_meteor.services.db import StateDB
+        from atomcam_meteor.services.lock import FileLock
+
+        with FileLock(config.paths.resolve_lock_path()):
+            db = StateDB.from_path(config.paths.resolve_db_path())
+            try:
+                pipeline = Pipeline(config, db=db)
+                result = pipeline.execute(date_str)
+            finally:
+                db.close()
+        _pipeline_run_status.update({
+            "status": "completed",
+            "date_str": result.date_str,
+            "clips_processed": result.clips_processed,
+            "detections_found": result.detections_found,
+            "composite_path": result.composite_path,
+            "video_path": result.video_path,
+        })
+    except LockError:
+        _pipeline_run_status.update({
+            "status": "error",
+            "message": "他のパイプライン実行が進行中のためロックを取得できませんでした。"
+            "しばらく待ってから再試行してください。",
+        })
+    except Exception as exc:
+        logger.error("手動パイプライン実行失敗 (date=%s): %s", date_str, exc)
+        _pipeline_run_status.update({"status": "error", "message": str(exc)})
+
+
+@router.post("/api/pipeline/run")
+def api_pipeline_run(
+    body: dict,
+    background_tasks: BackgroundTasks,
+    config: AppConfig = Depends(get_config),
+) -> dict:
+    """手動パイプライン実行を開始する。"""
+    if _pipeline_run_status.get("status") == "running":
+        raise HTTPException(status_code=409, detail="パイプラインは既に実行中です")
+    date_str = body.get("date_str", "")
+    if not date_str or not str(date_str).isdigit() or len(str(date_str)) != 8:
+        raise HTTPException(status_code=400, detail="date_str は YYYYMMDD 形式で指定してください")
+    _pipeline_run_status.clear()
+    _pipeline_run_status["status"] = "running"
+    _pipeline_run_status["date_str"] = date_str
+    background_tasks.add_task(_do_pipeline_run, date_str, config)
+    return {"status": "started", "date_str": date_str}
+
+
+@router.get("/api/pipeline/run/status")
+def api_pipeline_run_status() -> dict:
+    """手動パイプライン実行の現在のステータスを返す。"""
+    return dict(_pipeline_run_status)
