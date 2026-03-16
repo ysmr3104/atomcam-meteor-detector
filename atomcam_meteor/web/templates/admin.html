@@ -1009,6 +1009,48 @@ document.addEventListener('DOMContentLoaded', function() {
     loadAllSettings();
     refreshSchedulerStatus();
     refreshStorageInfo();
+    // 既に手動実行中の場合はポーリングを再開
+    fetch('/api/pipeline/run/status')
+        .then(function(r) { return r.json(); })
+        .then(function(s) {
+            if (s.status === 'running') {
+                var btn = document.getElementById('manualRunBtn');
+                var statusDiv = document.getElementById('manualRunStatus');
+                var statusText = document.getElementById('manualRunStatusText');
+                btn.disabled = true;
+                btn.setAttribute('aria-busy', 'true');
+                statusDiv.style.display = '';
+                statusText.textContent = '実行中... (date: ' + s.date_str + ')';
+                if (_manualRunPollInterval) clearInterval(_manualRunPollInterval);
+                _manualRunPollInterval = setInterval(function() {
+                    fetch('/api/pipeline/run/status')
+                        .then(function(r) { return r.json(); })
+                        .then(function(s) {
+                            if (s.status === 'completed') {
+                                clearInterval(_manualRunPollInterval);
+                                btn.disabled = false;
+                                btn.setAttribute('aria-busy', 'false');
+                                statusText.textContent = '完了';
+                                var parts = [];
+                                parts.push('処理クリップ数: ' + s.clips_processed);
+                                parts.push('検出数: ' + s.detections_found);
+                                if (s.composite_path) parts.push('合成画像: あり');
+                                if (s.video_path) parts.push('結合動画: あり');
+                                var resultDiv = document.getElementById('manualRunResult');
+                                resultDiv.textContent = parts.join(' / ');
+                                resultDiv.style.display = '';
+                                showToast('パイプライン完了: 検出 ' + s.detections_found + ' 件', 'success');
+                            } else if (s.status === 'error') {
+                                clearInterval(_manualRunPollInterval);
+                                btn.disabled = false;
+                                btn.setAttribute('aria-busy', 'false');
+                                statusText.textContent = 'エラー';
+                                showToast('実行失敗: ' + (s.message || '不明なエラー'), 'error');
+                            }
+                        });
+                }, 2000);
+            }
+        });
 });
 </script>
 {% endblock %}
