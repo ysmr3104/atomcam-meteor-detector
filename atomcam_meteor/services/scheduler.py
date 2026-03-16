@@ -191,11 +191,11 @@ class PipelineScheduler:
                 logger.info("スケジューラ: パイプライン実行開始 (date=%s)", date_str)
                 db = StateDB.from_path(self._config.paths.resolve_db_path())
                 try:
+                    # パイプライン実行前にクリーンアップ（クラッシュ・再起動後の残存ファイル対策）
+                    self._run_cleanup(db)
                     pipeline = Pipeline(self._config, db=db)
                     result = pipeline.execute(date_str)
                     self.status.last_run_detections = result.detections_found
-                    # パイプライン完了後にクリーンアップ
-                    self._run_cleanup(db)
                 finally:
                     db.close()
                 logger.info(

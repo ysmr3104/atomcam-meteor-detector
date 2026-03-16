@@ -40,11 +40,11 @@ def run(config_path: str | None, date_str: str | None, dry_run: bool, verbose: i
     with FileLock(config.paths.resolve_lock_path()):
         db = StateDB.from_path(config.paths.resolve_db_path())
         try:
-            pipeline = Pipeline(config, dry_run=dry_run, hooks=hooks, db=db)
-            result = pipeline.execute(date_str)
-            # パイプライン完了後のクリーンアップ
+            # パイプライン実行前にクリーンアップ（クラッシュ・再起動後の残存ファイル対策）
             if not dry_run:
                 _run_cleanup(config, db)
+            pipeline = Pipeline(config, dry_run=dry_run, hooks=hooks, db=db)
+            result = pipeline.execute(date_str)
         finally:
             db.close()
 
