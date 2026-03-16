@@ -210,7 +210,7 @@
         <label style="margin-bottom:0;">
           対象の夜
           <input type="date" id="manualRunDate" style="margin-top:0.25rem;">
-          <small>この日付の夜（前夜22時〜翌早朝）が処理対象です。</small>
+          <small>この日付の前日22時〜この日付の早朝が処理対象です（例: 3/16 を選ぶと 3/15 22:00〜3/16 早朝）。</small>
         </label>
         <button type="button" id="manualRunBtn" onclick="runManualPipeline()" style="width:auto; height:fit-content;">実行</button>
       </div>
@@ -903,7 +903,10 @@ function runManualCleanup() {
 /* -- 手動パイプライン実行 -- */
 (function() {
     var now = new Date();
-    var target = now.getHours() < 12 ? now : new Date(now.getTime() - 86400000);
+    // date_str は「翌朝の日付」規約。
+    // 22:00〜23:59 は今夜進行中 → 明日の date_str（今日 + 1日）
+    // 00:00〜21:59 は昨夜が直近完了 → 今日の date_str
+    var target = now.getHours() >= 22 ? new Date(now.getTime() + 86400000) : now;
     var y = target.getFullYear();
     var m = String(target.getMonth() + 1).padStart(2, '0');
     var d = String(target.getDate()).padStart(2, '0');
