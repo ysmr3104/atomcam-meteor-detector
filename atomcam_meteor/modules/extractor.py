@@ -103,7 +103,10 @@ class ClipExtractor:
             ]
             logger.info("Extracting clip: %s", " ".join(cmd))
 
-            proc = subprocess.run(cmd, capture_output=True, text=True)
+            try:
+                proc = subprocess.run(cmd, capture_output=True, text=True)
+            except FileNotFoundError as exc:
+                raise ExtractionError("ffmpeg が見つかりません。apt install ffmpeg でインストールしてください。") from exc
             if proc.returncode != 0:
                 raise ExtractionError(
                     f"ffmpeg extraction failed (exit {proc.returncode}): {proc.stderr}"
