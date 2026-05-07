@@ -38,11 +38,13 @@ cp config/settings.example.yaml config/settings.yaml
 
 主な変更点：
 
-- `camera.host`: ATOM Cam のホスト名に合わせて変更（例: `atomcam2.local`）
+- `camera.host`: **IP アドレスを直接指定することを推奨**（`.local` はネットワーク環境によって解決できない場合がある）
+
+ATOM Cam のアプリ内「デバイス設定 → デバイス情報」で IP アドレスを確認し、直接指定してください：
 
 ```yaml
 camera:
-  host: "atomcam2.local"
+  host: "192.168.1.109"  # ホスト名（atomcam.local 等）より IP アドレスが確実
 ```
 
 > **補足**: `http_user` / `http_password` はデフォルトで無効（認証なし）です。ATOM Cam 2 はそのままで動作します。認証が必要な環境の場合のみ設定してください。
@@ -220,12 +222,19 @@ sudo reboot
 OpenCV と ffmpeg に必要なシステムライブラリをインストールします。
 
 ```bash
+sudo apt update
 sudo apt install -y \
   git \
   ffmpeg \
   libopencv-dev \
   python3-dev \
   python3-venv
+```
+
+インストール後に必ず確認してください（`ffmpeg` がないと流星検出はできません）：
+
+```bash
+ffmpeg -version   # バージョンが表示されれば OK
 ```
 
 #### uv（Python パッケージマネージャ）のインストール
@@ -272,11 +281,13 @@ cp config/settings.example.yaml config/settings.yaml
 
 主な変更点：
 
-- `camera.host`: ATOM Cam のホスト名に合わせて変更（例: `atomcam2.local`）
+- `camera.host`: **IP アドレスを直接指定することを推奨**（`.local` はネットワーク環境によって解決できない場合がある）
+
+ATOM Cam のアプリ内「デバイス設定 → デバイス情報」で IP アドレスを確認し、直接指定してください：
 
 ```yaml
 camera:
-  host: "atomcam2.local"
+  host: "192.168.1.109"  # ホスト名（atomcam.local 等）より IP アドレスが確実
 ```
 
 > **補足**: `http_user` / `http_password` はデフォルトで無効（認証なし）です。ATOM Cam 2 はそのままで動作します。認証が必要な環境の場合のみ設定してください。
@@ -297,24 +308,26 @@ Web ダッシュボードを OS 起動時に自動で立ち上げるには、sys
 sudo nano /etc/systemd/system/atomcam-web.service
 ```
 
-以下の内容を記述します（`User` と `WorkingDirectory` は環境に合わせて変更してください）：
+以下の内容を記述します（`<ユーザー名>` は環境に合わせて変更してください）：
 
 ```ini
 [Unit]
-Description=ATOM Cam Meteor Detector Web Dashboard
+Description=AtomCam Meteor Detector Web Dashboard
 After=network.target
 
 [Service]
 Type=simple
 User=<ユーザー名>
 WorkingDirectory=/home/<ユーザー名>/atomcam-meteor-detector
-ExecStart=/home/<ユーザー名>/.local/bin/uv run atomcam serve -c config/settings.yaml
+ExecStart=/home/<ユーザー名>/atomcam-meteor-detector/.venv/bin/atomcam serve -c /home/<ユーザー名>/atomcam-meteor-detector/config/settings.yaml
 Restart=on-failure
 RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 ```
+
+> **注意**: `ExecStart` には絶対パスを使用してください。systemd は `uv` や venv が PATH に存在しない環境で起動するため、`uv run atomcam` ではなく `.venv/bin/atomcam` の絶対パスを指定します。
 
 #### サービスの有効化と起動
 
@@ -366,3 +379,102 @@ tailscale ip -4
 3. ブラウザで `http://<Tailscale IP>:8080/` にアクセス
 
 Tailscale は systemd サービスとして自動起動するため、Raspberry Pi の再起動後も設定は維持されます。
+
+---
+
+## セットアップ後の動作確認チェックリスト
+
+Raspberry Pi 上でセットアップが完了したら、以下の順番で確認してください。
+
+### 1. 各コンポーネントの単体確認
+
+```bash
+# ffmpeg が使えること（必須）
+ffmpeg -version
+
+# Python 環境が正常なこと
+.venv/bin/atomcam --help
+
+# カメラの SDカードにアクセスできること
+# ブラウザまたは curl で確認（IP アドレスは環境に合わせて変更）
+curl http://192.168.1.109/sdcard/record/
+# ディレクトリ一覧の HTML が返れば OK
+
+# 設定ファイルの検証
+.venv/bin/atomcam config -c config/settings.yaml --validate
+```
+
+### 2. パイプラインの手動実行テスト
+
+```bash
+# ドライランで設定・スケジュール計算に問題がないことを確認
+.venv/bin/atomcam run -c config/settings.yaml --dry-run -vv
+
+# 実際に実行（昨夜または今夜分）
+.venv/bin/atomcam run -c config/settings.yaml -v
+```
+
+### 3. systemd サービスの確認
+
+```bash
+# サービスが起動していること
+sudo systemctl status atomcam-web
+
+# エラーが出ていないことを確認（直近 50 行）
+journalctl -u atomcam-web -n 50
+```
+
+### 4. Web ダッシュボードの確認
+
+ブラウザで `http://meteor-pi.local:8080/` を開き、トップページが表示されれば OK。
+
+---
+
+## トラブルシューティング
+
+### カメラに接続できない（Name or service not known）
+
+`atomcam.local` などのホスト名が解決できない場合は、IP アドレスを直接指定します。
+
+**IP アドレスの調べ方（いずれか）:**
+- ATOM Cam アプリ内「デバイス設定 → デバイス情報」に表示される
+- ルーターの管理画面の DHCP クライアント一覧で確認する
+- ラズパイから以下でネットワーク上のカメラを探す:
+  ```bash
+  # ネットワーク上の全ホストを検索（192.168.1.0/24 の場合）
+  for i in $(seq 1 254); do
+    (ping -c1 -W1 192.168.1.$i &>/dev/null && echo 192.168.1.$i) &
+  done; wait
+  # 見つかった各 IP に対して SDカード API を確認
+  curl http://<IP>/sdcard/record/
+  ```
+
+IP が判明したら `config/settings.yaml` の `camera.host` を更新してください。
+
+### 流星を検出しても結果が保存されない
+
+以下のコマンドでエラーを確認します：
+
+```bash
+journalctl -u atomcam-web -n 100 | grep -E 'ERROR|Error|ffmpeg'
+```
+
+`ffmpeg が見つかりません` または `No such file or directory: 'ffmpeg'` が出ている場合：
+
+```bash
+sudo apt update
+sudo apt install -y ffmpeg
+ffmpeg -version  # インストール確認
+sudo systemctl restart atomcam-web
+```
+
+### systemd サービスが起動しない
+
+```bash
+journalctl -u atomcam-web -n 30  # エラーメッセージを確認
+```
+
+よくある原因：
+- `ExecStart` のパスが間違っている → `.venv/bin/atomcam` の絶対パスを確認
+- `config/settings.yaml` が存在しない → `settings.example.yaml` からコピーして作成
+- ポート 8080 が他プロセスに使用済み → `sudo lsof -i :8080` で確認

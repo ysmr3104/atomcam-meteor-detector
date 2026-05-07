@@ -1,5 +1,5 @@
 camera:
-  host: "atomcam.local"
+  host: "192.168.1.XXX"        # IP アドレスを推奨（atomcam.local 等の mDNS は解決できない場合あり）
   # http_user: "user"           # 認証が必要な場合のみ設定
   # http_password: "passwd"
   base_path: "sdcard/record"
