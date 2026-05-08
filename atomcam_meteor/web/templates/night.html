@@ -32,7 +32,24 @@
 <section>
     <hgroup>
         <h2>Detected Clips</h2>
-        <p>{% if night_output %}{{ night_output.detection_count }}{% else %}0{% endif %} detection(s)</p>
+        {% set n_detected  = clips | selectattr("status", "eq", "detected")     | list | length %}
+        {% set n_no_det    = clips | selectattr("status", "eq", "no_detection") | list | length %}
+        {% set n_error     = clips | selectattr("status", "eq", "error")        | list | length %}
+        {% set n_downloaded= clips | selectattr("status", "eq", "downloaded")   | list | length %}
+        {% set n_processed = n_detected + n_no_det + n_error %}
+        <p>{% if night_output %}{{ night_output.detection_count }}{% else %}0{% endif %} detection(s)
+          &nbsp;·&nbsp;
+          {% if n_processed == 0 and n_downloaded == 0 %}
+            <span style="color:var(--pico-color-orange-500)">未処理（パイプライン未実行）</span>
+          {% elif n_processed == 0 %}
+            <span style="color:var(--pico-color-orange-500)">{{ n_downloaded }} クリップDL済み・未検出処理</span>
+          {% else %}
+            {{ n_processed }} クリップ処理済み
+            {% if n_no_det %}<span style="color:var(--pico-color-grey-500)">（検出なし {{ n_no_det }}）</span>{% endif %}
+            {% if n_error %}<span style="color:var(--pico-color-red-500)">（エラー {{ n_error }}）</span>{% endif %}
+            {% if n_downloaded %}<span style="color:var(--pico-color-orange-500)">（DL済み未処理 {{ n_downloaded }}）</span>{% endif %}
+          {% endif %}
+        </p>
         <p style="display:flex; align-items:center; gap:0.5rem; flex-wrap:wrap; margin-top:0;">
             <button id="redetect-btn" onclick="triggerRedetect()" class="outline" style="margin:0; padding:0.25rem 0.75rem;">
                 Re-detect
